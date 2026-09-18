@@ -1,0 +1,5 @@
+msrv = "1.88"
+
+# Product names that appear in prose throughout the protocol documentation.
+# ".." keeps clippy's own default list.
+doc-valid-idents = ["TESmart", "PiKVM", "GbE", ".."]

@@ -1,0 +1,15 @@
+[toolchain]
+channel = "stable"
+components = [
+  "rustc",
+  "cargo",
+  "rustfmt",
+  "clippy",
+  # std sources — required for rust-analyzer to resolve `std`
+  "rust-src",
+  # pinned to this toolchain, overrides any rust-analyzer further down PATH
+  "rust-analyzer",
+]
+# Bare-metal target with no std at all: building `tesmart-proto` for it is the proof that the
+# protocol core is genuinely sans-IO and allocation free.
+targets = ["thumbv7em-none-eabi"]

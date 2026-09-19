@@ -138,3 +138,18 @@ Applying changes:
 1. Settings persist on `OK` but take effect only after a power cycle.
 2. Verify with the four queries before power-cycling. There is no factory reset; a wrong IP leaves RS232 as the only way back.
 3. RS232 support for these commands is disputed on KVMs — see the next section for why.
+
+### Why the LAN port has commands the KVM does not
+
+The ASCII network channel is not a KVM command set at all. bbeaudoin's board photographs identify the LAN port as a **CH9120/CH9121-class Ethernet-to-UART bridge**: a separate chip that terminates TCP and forwards a byte stream to the KVM's MCU over serial. `IP?`, `PT:`, `GW:` and `MA:` are that bridge's own configuration protocol, intercepted before they ever reach the KVM.
+
+That explains every oddity about them at once:
+
+- they are absent from every TESmart *protocol* document, because they are not the KVM's commands;
+- TESmart's IP-change guide can truthfully say the KVM firmware "does not support IP configuration via RS232" — over RS232 you are talking to the MCU, and the bridge is not in the path;
+- they share a socket with the hex frames without any framing or collision, because the bridge simply passes through anything it does not recognise;
+- the ~48-byte segmentation and the lone `;` are the bridge's MTU, not a protocol feature.
+
+Community reports of configuring IP over serial ([bbeaudoin](https://github.com/bbeaudoin/bash/blob/master/tesmart/README.md), [luborpetr](https://github.com/luborpetr/tesmart)) are not necessarily wrong — some units may wire the bridge's config UART differently — but the mechanism says to treat RS232 recovery as untested on your unit.
+
+Matrices are the exception: TESmart documents their network commands for **both** transports, in two different spellings. See below.

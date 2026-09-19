@@ -111,3 +111,30 @@ TESmart support told the author there is no exact equivalent of the Output A/B f
 The 7-byte frame with `0x04` in byte 2 is why byte 2 is a length field. A parser should not hard-code 6-byte frames for this family.
 
 **`MM SS` is minutes and seconds.** The source lists the two bytes without naming them. The P23 and EB23 manuals describe the same auto-scan feature on the front panel as separate `[MIN]` and `[SEC]` settings, 0–59 each, minimum 5 s, default 15 s, "5 seconds to 1 hour" — which makes minutes-then-seconds the only reading consistent with the hardware. One discrepancy remains: the serial command's documented ceiling is `0x38` (56) per field, while the panel allows 59.
+
+## Family A: ASCII network-config commands
+
+On Family A KVMs, IP settings use plain ASCII on the same TCP socket, with no `AA BB` framing. None of this is in TESmart's protocol PDFs; it comes from packet captures of the official Windows controller ([bbeaudoin](https://github.com/bbeaudoin/bash/blob/master/tesmart/README.md)) and working tools ([pschmitt/tesmart.sh](https://github.com/pschmitt/tesmart.sh), [luborpetr/tesmart](https://github.com/luborpetr/tesmart), [SiirRandall/tesmart-ui](https://github.com/SiirRandall/tesmart-ui)).
+
+| Purpose | Send | Reply |
+| --- | --- | --- |
+| Query IP | `IP?` | `IP:010.000.002.012` then `;` (may arrive as two TCP segments) |
+| Query port | `PT?` | `PT:05000;` |
+| Query gateway | `GW?` | `GW:010.000.002.001` then `;` |
+| Query mask | `MA?` | `MA:255.255.255.000` then `;` |
+| Set IP | `IP:10.0.2.12;` | `OK` |
+| Set port | `PT:5000;` | `OK` |
+| Set gateway | `GW:10.0.2.1;` | `OK` |
+| Set mask | `MA:255.255.255.0;` | `OK` |
+
+Spelling differences between sources, both reported working:
+
+- Captured controller traffic: `IP:10.0.2.12;` (no space) and `IP?` (no semicolon). This is the canonical form: it is also what the matrix documents print.
+- tesmart.sh: `IP: 10.0.2.12;` (space after colon) and `IP?;` (with semicolon).
+- Replies are zero-padded (`010.000.002.012`, `05000`); strip leading zeros per octet when parsing.
+
+Applying changes:
+
+1. Settings persist on `OK` but take effect only after a power cycle.
+2. Verify with the four queries before power-cycling. There is no factory reset; a wrong IP leaves RS232 as the only way back.
+3. RS232 support for these commands is disputed on KVMs — see the next section for why.

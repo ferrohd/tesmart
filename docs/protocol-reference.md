@@ -66,3 +66,26 @@ Parity and flow control are stated explicitly in the P23 and EB23 manuals and in
 **Read reply.** Send `AA BB 03 10 00 EE`; the switch answers `AA BB 03 11 XX EE` with `XX` = active port, 0-based.
 
 **Out-of-range writes are ignored.** A switch command naming a port the unit does not have changes nothing and is not acknowledged. That is a usable probe: switch to 16, 15, 14 … and read back; the first candidate that reads back as itself is the real input count. `krohrbaugh/teeheesmart` detects port counts this way.
+
+## Family A: commands by series
+
+Only "switch input" is documented for every series; everything else depends on which TESmart PDF covers your model. "Doc" = in the official PDF or manual; "Field" = absent from that doc but sent by working community tools; blank = no evidence.
+
+| Opcode | Value | Function | 4-port DVI DKS0401A30 | 8x1 v1 HKS0801A20 | 8x1 v2 HKS0801A30/A40/A1U, HSW0801A10/A1U, HKE0802A10 | 16x1 HKS1601A10/A1U, HSW1601A10/A1U | EB23 HKS801/1601-EB23 | P23 HKS801/1601-P23 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `0x01` | `0x01`–`0x10` | Switch to PC n (1-based) | Doc (1–4) | Doc (1–8) | Doc (1–8) | Doc (1–16) | Doc (1–16) | Doc (1–16) |
+| `0x02` | `0x00` / `0x01` | Buzzer mute / unmute |  |  | Doc | Doc | Doc | Doc |
+| `0x03` | `0x0A` / `0x1E` / `0x00` | Front display timeout 10 s / 30 s / never |  |  | Doc | Doc | Doc | Doc |
+| `0x81` | `0x00` / `0x01` | Auto input detect off / on |  |  | Doc | Field | Doc | Doc |
+| `0x10` | `0x00` | Read active port |  | Doc | Doc | Doc | Field | — |
+| `0x11` | port (0-based) | Reply: active port (switch to host) |  | Doc | Doc | Doc | Field | — |
+
+The display-timeout values are plain decimal seconds: `0x0A` = 10, `0x1E` = 30. That is worth knowing because it suggests the field is a seconds count rather than an enum, though no document confirms other values work.
+
+Notes per column:
+
+- **DKS0401A30**: the PDF lists only the four switch commands; no read, no settings.
+- **EB23 and P23 manuals** list opcodes 0x01, 0x03, 0x02 and 0x81 only — verified by reading both manuals. Neither documents `0x10`/`0x11`. Read-port works on EB23 in practice ([luborpetr/tesmart](https://github.com/luborpetr/tesmart) and the [tesmart\_kvm HA integration](https://github.com/tobydoescode/hass-integration-tesmart-kvm) poll it). For P23 there is still no field report: test before relying on it.
+- **EB23 vs P23**: EB23 is 4K30 with USB 2.0, P23 is 4K60 with USB 3.2 Gen1. The protocol content of the two manuals is identical. (Their hotkey tables disagree about which of PgUp/PgDn means "next", which is a documentation error, not a protocol difference.)
+- **Write-only settings**: buzzer, display timeout and auto-detect cannot be read back on any series; only the active port and network settings can.
+- **Hotkeys and other out-of-band changes** (not protocol commands, but they matter): the port also changes via the front panel, the IR remote, hotkeys (Right-Ctrl twice then a digit; Scroll Lock after Right-Ctrl, Right-Ctrl, F1), and a double-click of the mouse wheel. Anything tracking the active port must expect it to move without having asked, which is what makes the unsolicited reports below worth listening for.

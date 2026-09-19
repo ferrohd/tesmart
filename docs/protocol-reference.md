@@ -220,3 +220,44 @@ Every matrix document lists these twice, once marked "for LAN connection only" a
 Three things to note. Queries all share the `MT8003` prefix, but the writes do not: the port write is `MT8009` where the other three are `MT8019`. That inconsistency is printed identically in all three documents that have a network section, so it is transcribed rather than corrected. The replies are the same bare strings in both scopes, so only the encoder needs to know which transport it is on. And the documents write the values zero-padded to fixed width (`AAA.BBB.CCC.DDD`, `XXXXX`), unlike the captured LAN traffic on KVMs, which is unpadded.
 
 Power-cycling applies here too: "Turn off matrix and on again, and wait about 2 seconds", and "please do remember the modified IP settings" — there is no reset.
+
+## Family C: the SDI switch
+
+One model, one command. Source: [4x1 SDI switch protocol](https://support.tesmart.com/hc/en-us/article_attachments/10269851185433), 9600 8N1, parity none.
+
+| Command | Bytes |
+| --- | --- |
+| Switch to input 1 | `AA CC 01 01` |
+| Switch to input 2 | `AA CC 01 02` |
+| Switch to input 3 | `AA CC 01 03` |
+| Switch to input 4 | `AA CC 01 04` |
+
+Four bytes; header `AA CC` rather than `AA BB`; **no terminator** — nothing corresponds to the `0xEE` that ends a KVM frame. Whether the `01` is a length byte, as it is in `AA BB 03 …`, is not stated; since the document lists the four commands literally and defines nothing else, it is safest to treat the first three bytes as a fixed prefix.
+
+The switch reports nothing: no read command, no acknowledgement. Every command in this family is unverifiable by construction.
+
+## Transport behaviour and quirks
+
+The LAN port is a serial-to-Ethernet bridge (see above), so expect serial-like behaviour over TCP: unsolicited bytes, split packets and occasional garbage. Observations from field tools, none officially documented:
+
+| Quirk | Detail | Source |
+| --- | --- | --- |
+| Unsolicited port reports | While a client is connected, the switch pushes `AA BB 03 11 XX …` when the port changes by any means (button, hotkey, IR, mouse wheel). Stops after the client closes cleanly. | bbeaudoin |
+| Bad terminator | Replies ending in `0x16` or `0x1C` instead of `0xEE` have been seen. Match on `AA BB 03 11` + 1 data byte + any 1 byte. | bbeaudoin |
+| Invalid read data | Read replies are sometimes wrong, truncated or missing; retry. tesmart.sh retries up to 10 times, 0.2 s apart. | bbeaudoin, tesmart.sh |
+| `0xFF` on invalid input | Garbage in gets `0xFF` back on some units. | bbeaudoin |
+| Rate limit | Space commands at least 1 s apart. PiKVM waits 1.0 s after each switch. | bbeaudoin, PiKVM |
+| Small MTU | About 48 bytes per segment; ASCII replies split (the `;` arrives alone). Read until `;`, `END` or `OK`. | bbeaudoin |
+| One connection per command | PiKVM opens, sends, reads exactly 6 bytes, and closes for every command; 5 s timeouts; polls every 10 s. | PiKVM kvmd |
+| Old 10 Mbps NIC | Newer units shipped a 10 Mbps-only controller that may not link with 2.5/5/10 GbE ports; use a 1 GbE switch port. | bbeaudoin |
+| No authentication | Anyone who can reach port 5000 can switch. Keep it off the internet. | All |
+
+### The `0x11 → PC1` mystery, solved
+
+`tesmart.sh` maps a read value of 17 (`0x11`) to PC1, which corresponds to no documented behaviour. It is a **bug in the script's own parsing**, not a protocol quirk.
+
+The script extracts the port with `hexdump -C | awk '{print $(NF-2)}'`, taking the third-from-last field of the line. On a complete 6-byte reply (`AA BB 03 11 XX EE`) that lands on `XX`, the port. On a **truncated** 5-byte reply — which this hardware does produce — the fields shift and `$(NF-2)` lands on the opcode `0x11` = 17 instead. The `17 → PC1` mapping is a workaround for the script's own off-by-one field, and it is wrong in general: it silently reports PC1 whenever a reply arrives short.
+
+The lesson is for the decoder, not the mapping table: match frames by structure (header, length, opcode) and treat a short frame as incomplete rather than parsing whatever bytes arrived.
+
+`SiirRandall/tesmart-ui` has the mirror-image bug: its frame scanner requires the terminator to be exactly `0xEE`, so it drops every reply that ends in `0x16` or `0x1C`.

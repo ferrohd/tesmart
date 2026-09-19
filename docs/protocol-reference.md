@@ -187,3 +187,36 @@ So `MT00CT` and the preset/buzzer commands are mutually exclusive in practice. T
 **The buzzer is inverted.** On a matrix, `MT00BZEN01NT` *mutes*. On a KVM, `0x02` with `0x00` mutes. Both are printed that way in TESmart's own documents. Any code sharing a "buzzer on/off" value between the families must invert it in exactly one place.
 
 **`MT00RD` is two commands.** `MT00RD0000NT` reads the routing; `MT00RD01XXNT` loads preset XX. They differ by one character, and the second one changes what is on screen.
+
+### The `LINK:` reply
+
+Documented as `LINK:OYIX;END`, where **Y is the output and X is the input** — the `O` and `I` prefixes name the following digit. How a multi-output matrix lays out the rest is not stated, but the pairs are semicolon-separated in every example.
+
+The port digits are **not plain decimal**:
+
+| Models | Digits |
+| --- | --- |
+| 4x4 | `1`–`4` |
+| 8x8 | `1`–`8` |
+| 16x16 | `1`–`9`, then `A`, `B`, `C`–`G` |
+
+So on a 16x16, output 10 is `A` and output 16 is `G`. A decimal parser silently rejects every reply above port 9.
+
+This also sets the largest reply in the whole protocol. A full 16x16 report is `LINK:` + 16 × `OnIm;` + `END` = **88 bytes**, which does not fit the ~48-byte bridge segment and therefore always arrives split. A decoder's reassembly buffer has to be sized for the logical unit, not for the MTU.
+
+### Network commands, per transport
+
+Every matrix document lists these twice, once marked "for LAN connection only" and once "for RS232 connection only".
+
+| Purpose | LAN | RS232 |
+| --- | --- | --- |
+| Query IP / port / gateway / mask | `IP?` `PT?` `GW?` `MA?` | `MT8003IP?` `MT8003PT?` `MT8003GW?` `MT8003MA?` |
+| Set IP | `IP:AAA.BBB.CCC.DDD;` | `MT8019IP:AAA.BBB.CCC.DDD;` |
+| Set port | `PT:XXXXX;` | **`MT8009PT:XXXXX;`** |
+| Set gateway | `GW:AAA.BBB.CCC.DDD;` | `MT8019GW:AAA.BBB.CCC.DDD;` |
+| Set mask | `MA:AAA.BBB.CCC.DDD;` | `MT8019MA:AAA.BBB.CCC.DDD;` |
+| Reply (either transport) | `IP:AAA.BBB.CCC.DDD;` and friends | identical |
+
+Three things to note. Queries all share the `MT8003` prefix, but the writes do not: the port write is `MT8009` where the other three are `MT8019`. That inconsistency is printed identically in all three documents that have a network section, so it is transcribed rather than corrected. The replies are the same bare strings in both scopes, so only the encoder needs to know which transport it is on. And the documents write the values zero-padded to fixed width (`AAA.BBB.CCC.DDD`, `XXXXX`), unlike the captured LAN traffic on KVMs, which is unpadded.
+
+Power-cycling applies here too: "Turn off matrix and on again, and wait about 2 seconds", and "please do remember the modified IP settings" — there is no reset.

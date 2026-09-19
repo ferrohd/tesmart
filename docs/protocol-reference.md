@@ -153,3 +153,37 @@ That explains every oddity about them at once:
 Community reports of configuring IP over serial ([bbeaudoin](https://github.com/bbeaudoin/bash/blob/master/tesmart/README.md), [luborpetr](https://github.com/luborpetr/tesmart)) are not necessarily wrong — some units may wire the bridge's config UART differently — but the mechanism says to treat RS232 recovery as untested on your unit.
 
 Matrices are the exception: TESmart documents their network commands for **both** transports, in two different spellings. See below.
+
+## Family B: matrix ASCII protocol (not for KVMs)
+
+TESmart HDMI matrices use ASCII command strings on the same default address (192.168.1.10:5000, 9600 8N1), so a KVM tool pointed at a matrix will connect but do nothing useful. Sources: the 4x4 (RS232), 4x4 (RS232+IP), 8x8 and 16x16 protocol documents, all four transcribed.
+
+| Command | Meaning |
+| --- | --- |
+| `MT00SWXXYYNT` | Route input XX to output YY |
+| `MT00SWXX00NT` | Input XX to all outputs |
+| `MT00SW0000NT` | Mirror 1→1, 2→2 … |
+| `MT00RD0000NT` | Request routing; reply `LINK:OYIX;END` |
+| `MT00RD01XXNT` | Load routing preset XX (`01`–`08`) |
+| `MT00SV00XXNT` | Save current routing into preset XX (`01`–`08`) |
+| `MT00BZEN01NT` / `MT00BZEN00NT` | Buzzer **mute** / unmute |
+| `MT00CTXXXXNT` | Display timeout, 0000–9999 s (0000 = never) |
+
+### One family, four command sets
+
+The table above is the union. No matrix implements all of it, and the gaps do not nest:
+
+| Models | Route, mirror, read | `MT00CT` | Buzzer | Presets | Network |
+| --- | --- | --- | --- | --- | --- |
+| 4x4, RS232 only (A40, B40, B50, A50, A30, A70) | yes | no | no | no | **no** |
+| 4x4, RS232+IP (B30, HME040410H, HME040806R, A1U) | yes | **yes** | no | no | yes |
+| 8x8 (A10, A20, A30, A1U) | yes | no | **yes** | **yes** | yes |
+| 16x16 (A10, A20) | yes | no | **yes** | **yes** | yes |
+
+So `MT00CT` and the preset/buzzer commands are mutually exclusive in practice. The RS232-only 4x4 document is four commands long: routing and the `LINK:` report, with no network section at all.
+
+### Two traps
+
+**The buzzer is inverted.** On a matrix, `MT00BZEN01NT` *mutes*. On a KVM, `0x02` with `0x00` mutes. Both are printed that way in TESmart's own documents. Any code sharing a "buzzer on/off" value between the families must invert it in exactly one place.
+
+**`MT00RD` is two commands.** `MT00RD0000NT` reads the routing; `MT00RD01XXNT` loads preset XX. They differ by one character, and the second one changes what is on screen.

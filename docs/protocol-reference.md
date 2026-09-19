@@ -89,3 +89,25 @@ Notes per column:
 - **EB23 vs P23**: EB23 is 4K30 with USB 2.0, P23 is 4K60 with USB 3.2 Gen1. The protocol content of the two manuals is identical. (Their hotkey tables disagree about which of PgUp/PgDn means "next", which is a documentation error, not a protocol difference.)
 - **Write-only settings**: buzzer, display timeout and auto-detect cannot be read back on any series; only the active port and network settings can.
 - **Hotkeys and other out-of-band changes** (not protocol commands, but they matter): the port also changes via the front panel, the IR remote, hotkeys (Right-Ctrl twice then a digit; Scroll Lock after Right-Ctrl, Right-Ctrl, F1), and a double-click of the mouse wheel. Anything tracking the active port must expect it to move without having asked, which is what makes the unsolicited reports below worth listening for.
+
+## Family A': dual-monitor 4-port variant
+
+This variant reuses the Family A framing but redefines opcodes 0x03 and up. Sending a Family A "display timeout" (`0x03`) here steps output A's input instead. Source: [spuder/Tesmart-KVM](https://github.com/spuder/Tesmart-KVM), tested on TESmart's 4-port dual-monitor HDMI/USB-C 4K60 KVM over RS232 at 9600 baud. No official TESmart PDF covers it.
+
+| Frame | Function | Clash with Family A |
+| --- | --- | --- |
+| `AA BB 03 01 0n EE` | Switch to PC n (1–4) | Same |
+| `AA BB 03 02 00 EE` / `… 02 01 EE` | Buzzer off / on | Same |
+| `AA BB 03 03 00 EE` / `… 03 01 EE` | Output A input −1 / +1 | **Yes**: 0x03 = display timeout in A |
+| `AA BB 03 04 00 EE` / `… 04 01 EE` | Output B input −1 / +1 | New |
+| `AA BB 03 05 01 EE` | Move USB between outputs (display mode 2) | New |
+| `AA BB 03 06 00 EE` / `… 06 01 EE` | K/M pass-through on / off (note inverted values) | New |
+| `AA BB 03 07 01 EE` / `… 07 00 EE` | Hotkey trigger Right-Ctrl / Scroll Lock | New |
+| `AA BB 03 08 01 EE` / `… 08 00 EE` | Auto-switch on / off | New |
+| `AA BB 04 09 MM SS EE` | Auto-switch interval, 0x00–0x38, minimum 5 s | New; 7 bytes, byte 2 = `0x04` |
+
+TESmart support told the author there is no exact equivalent of the Output A/B front buttons; the ±1 commands are the closest. No read command is documented for this variant.
+
+The 7-byte frame with `0x04` in byte 2 is why byte 2 is a length field. A parser should not hard-code 6-byte frames for this family.
+
+**`MM SS` is minutes and seconds.** The source lists the two bytes without naming them. The P23 and EB23 manuals describe the same auto-scan feature on the front panel as separate `[MIN]` and `[SEC]` settings, 0–59 each, minimum 5 s, default 15 s, "5 seconds to 1 hour" — which makes minutes-then-seconds the only reading consistent with the hardware. One discrepancy remains: the serial command's documented ceiling is `0x38` (56) per field, while the panel allows 59.

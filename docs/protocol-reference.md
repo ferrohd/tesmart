@@ -261,3 +261,65 @@ The script extracts the port with `hexdump -C | awk '{print $(NF-2)}'`, taking t
 The lesson is for the decoder, not the mapping table: match frames by structure (header, length, opcode) and treat a short frame as incomplete rather than parsing whatever bytes arrived.
 
 `SiirRandall/tesmart-ui` has the mirror-image bug: its frame scanner requires the terminator to be exactly `0xEE`, so it drops every reply that ends in `0x16` or `0x1C`.
+
+## Implementation notes for a CLI
+
+A robust client is a small stream parser plus a per-family command table; the six-byte happy path alone breaks on real hardware.
+
+1. **Transport layer**: one interface over TCP (default 192.168.1.10:5000) and serial (9600 8N1). Connect timeout about 5 s.
+2. **Command table keyed by family**: `kvm` (A) and `kvm-dual` (A') share 0x01/0x02 and diverge from 0x03. Refuse unknown opcodes per family instead of sending them.
+3. **Frame builder**: `AA BB <len> <op> <data…> EE` with `len = len(data) + 2` (0x03 for one data byte, 0x04 for two). Family C is not this shape at all.
+4. **Reader**: buffer the stream; scan for `AA BB 03 11`, take the next byte as the 0-based port, skip one byte whatever it is. Treat anything else as ASCII until `;`, `END` or `OK`. Size the buffer for 88 bytes, not 48.
+5. **Switch flow**: optional read first (skip if already on target), send `AA BB 03 01 <n> EE`, wait 1 s, read back and compare with n−1. Retry the read a few times; fail loudly if it never matches.
+6. **Settings** (`buzzer`, `timeout`, `autodetect`): fire-and-forget. Print that the state cannot be verified.
+7. **Network commands**: send ASCII, read until `OK`, query all four values back, then tell the user to power-cycle. Require an explicit `--yes` before any set. On a matrix, pick the bare or `MT80xx` spelling from the transport.
+8. **Matrix routing is the one verifiable write**: `MT00RD0000NT` reports the whole table, so a route can actually be confirmed. Nothing a KVM sets can be.
+9. **Capabilities belong to the model, not the family**: within Family B alone there are four different command sets. Record what each model documents and refuse the rest before sending.
+10. **Test without hardware**: a fake TCP server that answers `AA BB 03 10 00 EE` with `AA BB 03 11 <port> EE` covers most of the logic.
+
+Quick manual test from a shell:
+
+```
+# switch to PC2
+printf '\xAA\xBB\x03\x01\x02\xEE' | nc -w 1 192.168.1.10 5000
+# read active port; last-but-one byte is 0-based
+printf '\xAA\xBB\x03\x10\x00\xEE' | nc -w 1 192.168.1.10 5000 | xxd
+```
+
+GNU netcat is reported not to work here; use OpenBSD netcat, ncat or BusyBox nc.
+
+## Sources
+
+Official TESmart:
+
+- [LAN RS232 Control Protocols (index, model mapping)](https://support.tesmart.com/hc/en-us/articles/10270214101913-LAN-RS232-Control-Protocols)
+- [LAN RS232 Control Software (Windows controllers, model mapping)](https://support.tesmart.com/hc/en-us/articles/10271501164953-LAN-RS232-Control-Software)
+- [4x1 SDI switch protocol (SSW04010A10)](https://support.tesmart.com/hc/en-us/article_attachments/10269851185433)
+- [4x1 DVI KVM Communication Protocol (DKS0401A30)](https://support.tesmart.com/hc/en-us/article_attachments/10269851170969)
+- [8x1 HDMI KVM Communication Protocol (HKS0801A20)](https://support.tesmart.com/hc/en-us/article_attachments/10269851472793)
+- [8x1 HDMI Switch Communication Protocol v2](https://support.tesmart.com/hc/en-us/article_attachments/10269851509913)
+- [16x1 HDMI KVM Communication Protocol](https://support.tesmart.com/hc/en-us/article_attachments/10269851662361)
+- [4x4 HDMI matrix protocol (RS232)](https://support.tesmart.com/hc/en-us/article_attachments/10269851354137)
+- [4x4 HDMI matrix protocol (RS232+IP)](https://support.tesmart.com/hc/en-us/article_attachments/10269851379737)
+- [8x8 HDMI matrix protocol](https://support.tesmart.com/hc/en-us/article_attachments/10269851646617)
+- [16x16 HDMI matrix protocol](https://support.tesmart.com/hc/en-us/article_attachments/27717852679449)
+- [How to change the KVM's IP address](https://support.tesmart.com/hc/en-us/article_attachments/10269851887513)
+- [How to change the IP address of the matrix](https://support.tesmart.com/hc/en-us/article_attachments/18297939162265)
+- [How to connect a matrix via LAN](https://support.tesmart.com/hc/en-us/article_attachments/10269851772057)
+- [Case solutions: error messages with the control software](https://support.tesmart.com/hc/en-us/article_attachments/18300752515225)
+- [HKS801-EB23 / HKS1601-EB23 user manual](https://www.tesmart.com/cdn/shop/files/HKS801-EB23-HKS1601-EB23-V001_d957ed9b-12a7-4e0b-906e-578ff9b792b2.pdf?v=1474577386417609832)
+- [HKS801-P23 / HKS1601-P23 user manual](https://support.tesmart.com/hc/ja/article_attachments/40997468506777)
+
+Community:
+
+- [bbeaudoin/bash tesmart README (packet captures, bridge identification, quirks)](https://github.com/bbeaudoin/bash/blob/master/tesmart/README.md)
+- [PiKVM kvmd TESmart driver](https://github.com/pikvm/kvmd/blob/master/kvmd/plugins/ugpio/tesmart.py)
+- [pschmitt/tesmart.sh](https://github.com/pschmitt/tesmart.sh)
+- [luborpetr/tesmart (EB23)](https://github.com/luborpetr/tesmart)
+- [tobydoescode TESmart KVM HA integration (HKS801-EB23)](https://github.com/tobydoescode/hass-integration-tesmart-kvm)
+- [spuder/Tesmart-KVM (dual-monitor 4-port)](https://github.com/spuder/Tesmart-KVM)
+- [krohrbaugh/teeheesmart (port-count probing)](https://github.com/krohrbaugh/teeheesmart)
+- [krohrbaugh/tesmart-homeassistant](https://github.com/krohrbaugh/tesmart-homeassistant)
+- [SiirRandall/tesmart-ui (raw hex, network config)](https://github.com/SiirRandall/tesmart-ui)
+- [featherbear/tesmart-4x4-hdmi-matrix-rs232](https://github.com/featherbear/tesmart-4x4-hdmi-matrix-rs232)
+- [PiKVM TESmart guide](https://docs.pikvm.org/tesmart/)

@@ -9,6 +9,8 @@
 // `must_use_candidate` fires on nearly every accessor in a crate made of value types.
 #![allow(clippy::must_use_candidate)]
 
+mod buf;
+
 pub mod port;
 
 pub use crate::port::{Port, PortCount};

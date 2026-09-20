@@ -110,6 +110,95 @@ impl FromStr for Port {
     }
 }
 
+/// How many ports a particular switch has (4, 8 or 16 for documented models).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
+pub struct PortCount(NonZeroU8);
+
+impl PortCount {
+    /// One: the smallest a switch can have, and what a single-monitor KVM has outputs of.
+    pub const MIN: Self = Self::known(1);
+
+    /// Creates a port count.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PortError::OutOfRange`] unless `1 <= count <= 16`.
+    pub const fn new(count: u8) -> Result<Self, PortError> {
+        match NonZeroU8::new(count) {
+            Some(count_nz) if count <= Port::MAX => Ok(Self(count_nz)),
+            _ => Err(PortError::OutOfRange { value: count, max: Port::MAX }),
+        }
+    }
+
+    /// Creates a port count in a const context, panicking on an invalid value.
+    ///
+    /// Used by the model registry, where the values are literals checked at compile time.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `count` is not in `1..=16`.
+    pub(crate) const fn known(count: u8) -> Self {
+        assert!(matches!(count, 1..=Port::MAX), "invalid port count in the model registry");
+        match NonZeroU8::new(count) {
+            Some(count_nz) => Self(count_nz),
+            None => panic!("invalid port count in the model registry"),
+        }
+    }
+
+    /// The number of ports.
+    pub const fn get(self) -> u8 {
+        self.0.get()
+    }
+
+    /// The highest port on this switch.
+    pub const fn last(self) -> Port {
+        match Port::new(self.0.get()) {
+            Ok(port) => port,
+            Err(_) => Port::FIRST,
+        }
+    }
+
+    /// Whether `port` exists on this switch.
+    pub const fn contains(self, port: Port) -> bool {
+        port.get() <= self.0.get()
+    }
+
+    /// Validates `port` against this switch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PortError::OutOfRange`] if the switch has fewer ports than `port`.
+    pub const fn check(self, port: Port) -> Result<Port, PortError> {
+        if self.contains(port) {
+            Ok(port)
+        } else {
+            Err(PortError::OutOfRange { value: port.get(), max: self.0.get() })
+        }
+    }
+}
+
+impl fmt::Display for PortCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.get())
+    }
+}
+
+impl From<PortCount> for u8 {
+    fn from(count: PortCount) -> Self {
+        count.get()
+    }
+}
+
+impl TryFrom<u8> for PortCount {
+    type Error = PortError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
 /// Something was wrong with a port number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]

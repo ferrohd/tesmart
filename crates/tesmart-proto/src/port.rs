@@ -226,3 +226,62 @@ pub enum PortError {
     #[error("expected a port number (1..=16)")]
     Malformed,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writes_are_one_based_and_reads_are_zero_based() {
+        // docs/protocol-reference.md: write 0x01 = PC1, read reply 0x00 = PC1
+        let pc1 = Port::new(1).unwrap();
+        assert_eq!(pc1.to_write_byte(), 0x01);
+        assert_eq!(pc1.to_read_byte(), 0x00);
+
+        let pc16 = Port::new(16).unwrap();
+        assert_eq!(pc16.to_write_byte(), 0x10);
+        assert_eq!(pc16.to_read_byte(), 0x0F);
+
+        assert_eq!(Port::from_read_byte(0x00), Ok(pc1));
+        assert_eq!(Port::from_read_byte(0x0F), Ok(pc16));
+    }
+
+    #[test]
+    fn read_byte_round_trips_for_every_port() {
+        for human in 1..=Port::MAX {
+            let port = Port::new(human).unwrap();
+            assert_eq!(Port::from_read_byte(port.to_read_byte()), Ok(port));
+        }
+    }
+
+    #[test]
+    fn rejects_out_of_range_values() {
+        assert_eq!(Port::new(0), Err(PortError::OutOfRange { value: 0, max: 16 }));
+        assert_eq!(Port::new(17), Err(PortError::OutOfRange { value: 17, max: 16 }));
+        // 0x10 in a *reply* is one past the last port; it is not PC1, whatever tesmart.sh does
+        assert_eq!(Port::from_read_byte(0x10), Err(PortError::ReplyOutOfRange { raw: 0x10 }));
+        assert_eq!(Port::from_read_byte(0xFF), Err(PortError::ReplyOutOfRange { raw: 0xFF }));
+    }
+
+    #[test]
+    fn port_count_gates_per_model_ranges() {
+        let four = PortCount::new(4).unwrap();
+        let pc3 = Port::new(3).unwrap();
+        let pc8 = Port::new(8).unwrap();
+
+        assert!(four.contains(pc3));
+        assert!(!four.contains(pc8));
+        assert_eq!(four.check(pc3), Ok(pc3));
+        assert_eq!(four.check(pc8), Err(PortError::OutOfRange { value: 8, max: 4 }));
+        assert_eq!(four.last(), Port::new(4).unwrap());
+    }
+
+    #[test]
+    fn parses_and_displays() {
+        assert_eq!("3".parse::<Port>(), Ok(Port::new(3).unwrap()));
+        assert_eq!(" 16 ".parse::<Port>(), Ok(Port::new(16).unwrap()));
+        assert_eq!("0".parse::<Port>(), Err(PortError::OutOfRange { value: 0, max: 16 }));
+        assert_eq!("nas".parse::<Port>(), Err(PortError::Malformed));
+        assert_eq!(std::format!("{}", Port::new(7).unwrap()), "7");
+    }
+}

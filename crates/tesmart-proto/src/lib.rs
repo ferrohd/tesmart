@@ -8,3 +8,7 @@
 #![cfg_attr(not(test), no_std)]
 // `must_use_candidate` fires on nearly every accessor in a crate made of value types.
 #![allow(clippy::must_use_candidate)]
+
+pub mod port;
+
+pub use crate::port::{Port, PortCount};

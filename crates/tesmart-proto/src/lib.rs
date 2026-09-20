@@ -12,5 +12,6 @@
 mod buf;
 
 pub mod port;
+pub mod time;
 
 pub use crate::port::{Port, PortCount};

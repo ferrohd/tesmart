@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/tesmart-proto",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/ferrohd/tesmart"
+
+[workspace.dependencies]
+
+# Core
+thiserror = { version = "2.0.21", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

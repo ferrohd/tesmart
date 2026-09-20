@@ -1,0 +1,17 @@
+[package]
+name = "tesmart-proto"
+description = "Sans-IO TESmart KVM and HDMI matrix control protocols: the controller side"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["tesmart", "kvm", "protocol", "sans-io", "no-std"]
+categories = ["no-std", "network-programming", "parser-implementations"]
+
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

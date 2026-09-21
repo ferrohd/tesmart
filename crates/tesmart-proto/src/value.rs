@@ -220,3 +220,97 @@ impl fmt::Display for HotkeyTrigger {
         })
     }
 }
+
+/// The dwell time of the dual-monitor auto-switch mode (opcode `0x09`).
+///
+/// The frame carries two data bytes, `AA BB 04 09 MM SS EE`, each documented only as
+/// "`0x00`-`0x38`, minimum 5 s". That `MM` is minutes and `SS` is seconds is an *inference* from
+/// the field layout, not something TESmart documents, so [`SwitchInterval::from_raw`] is the
+/// primary constructor and [`SwitchInterval::from_secs`] is the convenience built on top of the
+/// guess.
+///
+/// Source: `spuder/Tesmart-KVM`, tested over RS232 on a 4-port dual-monitor switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SwitchInterval {
+    minutes: u8,
+    seconds: u8,
+}
+
+impl SwitchInterval {
+    /// The largest value either field accepts (`0x38` = 56).
+    pub const MAX_FIELD: u8 = 0x38;
+
+    /// The shortest interval the switch accepts.
+    pub const MIN_SECONDS: u16 = 5;
+
+    /// Builds an interval from the two raw frame bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntervalError::FieldOutOfRange`] if either field exceeds `0x38`, or
+    /// [`IntervalError::TooShort`] if the implied total is under 5 s.
+    pub const fn from_raw(minutes: u8, seconds: u8) -> Result<Self, IntervalError> {
+        if minutes > Self::MAX_FIELD {
+            return Err(IntervalError::FieldOutOfRange { value: minutes });
+        }
+        if seconds > Self::MAX_FIELD {
+            return Err(IntervalError::FieldOutOfRange { value: seconds });
+        }
+        let total = minutes as u16 * 60 + seconds as u16;
+        if total < Self::MIN_SECONDS {
+            return Err(IntervalError::TooShort { seconds: total });
+        }
+        Ok(Self { minutes, seconds })
+    }
+
+    /// Builds an interval from a number of seconds, assuming the `MM SS` reading of the frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntervalError::TooShort`] below 5 s and [`IntervalError::FieldOutOfRange`]
+    /// above `0x38` minutes (56 min 56 s is the largest representable interval).
+    pub const fn from_secs(total: u16) -> Result<Self, IntervalError> {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "both quotient and remainder of a u16 by 60 are checked against 0x38 below"
+        )]
+        let (minutes, seconds) = ((total / 60) as u8, (total % 60) as u8);
+        Self::from_raw(minutes, seconds)
+    }
+
+    /// The two data bytes, in frame order.
+    pub const fn to_raw(self) -> (u8, u8) {
+        (self.minutes, self.seconds)
+    }
+
+    /// The interval in seconds, under the inferred `MM SS` reading.
+    pub const fn as_secs(self) -> u16 {
+        self.minutes as u16 * 60 + self.seconds as u16
+    }
+}
+
+impl fmt::Display for SwitchInterval {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}m{}s", self.minutes, self.seconds)
+    }
+}
+
+/// An interval outside what the switch accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum IntervalError {
+    /// A field above the documented `0x38` ceiling.
+    #[error("auto-switch interval field {value} is out of range (0..=0x38)")]
+    FieldOutOfRange {
+        /// The rejected field value.
+        value: u8,
+    },
+
+    /// Below the documented 5 second minimum.
+    #[error("auto-switch interval of {seconds}s is below the 5s minimum")]
+    TooShort {
+        /// The rejected total, in seconds.
+        seconds: u16,
+    },
+}

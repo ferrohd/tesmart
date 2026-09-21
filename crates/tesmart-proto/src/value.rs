@@ -314,3 +314,116 @@ pub enum IntervalError {
         seconds: u16,
     },
 }
+
+/// A display timeout for HDMI matrices, in seconds (`MT00CTXXXXNT`, `0000`-`9999`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MatrixTimeout(u16);
+
+impl MatrixTimeout {
+    /// Keep the display on forever (`0000`).
+    pub const NEVER: Self = Self(0);
+
+    /// The largest value the four-digit field can carry.
+    pub const MAX_SECONDS: u16 = 9999;
+
+    /// Builds a matrix display timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MatrixTimeoutError`] above 9999 seconds.
+    pub const fn from_secs(seconds: u16) -> Result<Self, MatrixTimeoutError> {
+        if seconds > Self::MAX_SECONDS {
+            return Err(MatrixTimeoutError { seconds });
+        }
+        Ok(Self(seconds))
+    }
+
+    /// The timeout in seconds, `0` meaning never.
+    pub const fn as_secs(self) -> u16 {
+        self.0
+    }
+}
+
+impl fmt::Display for MatrixTimeout {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            0 => f.write_str("never"),
+            seconds => write!(f, "{seconds}s"),
+        }
+    }
+}
+
+/// A matrix display timeout that does not fit the four-digit field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("matrix display timeout of {seconds}s is out of range (0..=9999)")]
+pub struct MatrixTimeoutError {
+    /// The rejected value.
+    pub seconds: u16,
+}
+
+/// One of a matrix's eight stored routing presets.
+///
+/// `MT00SV00XXNT` saves the current routing into slot `XX`, `MT00RD01XXNT` loads it back, with
+/// `XX` in `01`-`08`. Documented for the 8x8 and 16x16 matrices only; the 4x4 documents have no
+/// preset commands at all.
+///
+/// ```
+/// use tesmart_proto::value::Preset;
+///
+/// assert_eq!(Preset::new(1).unwrap().get(), 1);
+/// assert!(Preset::new(9).is_err(), "there are only eight slots");
+/// assert!(Preset::new(0).is_err());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Preset(u8);
+
+impl Preset {
+    /// The first slot.
+    pub const FIRST: Self = Self(1);
+
+    /// How many slots a matrix has.
+    pub const COUNT: u8 = 8;
+
+    /// Builds a preset slot number.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PresetError`] outside `1..=8`.
+    pub const fn new(number: u8) -> Result<Self, PresetError> {
+        if number == 0 || number > Self::COUNT {
+            return Err(PresetError { number });
+        }
+        Ok(Self(number))
+    }
+
+    /// The slot number, as the documents count them.
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl fmt::Display for Preset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for Preset {
+    type Err = PresetError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        let number = s.parse().map_err(|_| PresetError { number: 0 })?;
+        Self::new(number)
+    }
+}
+
+/// A preset slot a matrix does not have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("preset {number} is out of range (1..=8)")]
+pub struct PresetError {
+    /// The rejected slot number.
+    pub number: u8,
+}

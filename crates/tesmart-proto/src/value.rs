@@ -150,3 +150,73 @@ impl fmt::Display for Output {
         })
     }
 }
+
+/// A relative input change, the only way to steer a dual-monitor output.
+///
+/// TESmart support confirmed to the author of `spuder/Tesmart-KVM` that there is no absolute
+/// per-output switch command; stepping is the closest equivalent to the front buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum Step {
+    /// One input down (`0x00`).
+    Previous,
+    /// One input up (`0x01`).
+    Next,
+}
+
+impl Step {
+    /// The wire value: `0x00` previous, `0x01` next.
+    pub const fn to_byte(self) -> u8 {
+        match self {
+            Self::Previous => 0x00,
+            Self::Next => 0x01,
+        }
+    }
+
+    /// Reads a wire value, which a device does when it receives a step command.
+    ///
+    /// Anything that is not `0x00` is next, matching how the hardware behaves: the documented
+    /// values are the only two, and a switch does not reject a third.
+    pub const fn from_byte(raw: u8) -> Self {
+        if raw == 0x00 { Self::Previous } else { Self::Next }
+    }
+}
+
+impl fmt::Display for Step {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Previous => "previous",
+            Self::Next => "next",
+        })
+    }
+}
+
+/// The key that starts a hotkey sequence on dual-monitor switches (opcode `0x07`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum HotkeyTrigger {
+    /// Right Ctrl, pressed twice (`0x01`).
+    RightCtrl,
+    /// Scroll Lock, pressed twice (`0x00`).
+    ScrollLock,
+}
+
+impl HotkeyTrigger {
+    pub(crate) const fn to_byte(self) -> u8 {
+        match self {
+            Self::RightCtrl => 0x01,
+            Self::ScrollLock => 0x00,
+        }
+    }
+}
+
+impl fmt::Display for HotkeyTrigger {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::RightCtrl => "right-ctrl",
+            Self::ScrollLock => "scroll-lock",
+        })
+    }
+}

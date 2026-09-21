@@ -427,3 +427,163 @@ pub struct PresetError {
     /// The rejected slot number.
     pub number: u8,
 }
+
+/// One of the four network settings reachable over the ASCII side-channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum NetField {
+    /// IP address (`IP`).
+    Ip,
+    /// TCP port (`PT`).
+    Port,
+    /// Default gateway (`GW`).
+    Gateway,
+    /// Subnet mask (`MA`).
+    Mask,
+}
+
+impl NetField {
+    /// Every field, in query order.
+    pub const ALL: [Self; 4] = [Self::Ip, Self::Port, Self::Gateway, Self::Mask];
+
+    /// The two-letter keyword used on the wire.
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            Self::Ip => "IP",
+            Self::Port => "PT",
+            Self::Gateway => "GW",
+            Self::Mask => "MA",
+        }
+    }
+}
+
+impl fmt::Display for NetField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Ip => "ip",
+            Self::Port => "port",
+            Self::Gateway => "gateway",
+            Self::Mask => "mask",
+        })
+    }
+}
+
+impl FromStr for NetField {
+    type Err = NetFieldError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        for field in Self::ALL {
+            if s.eq_ignore_ascii_case(field.keyword()) || s.eq_ignore_ascii_case(field.as_name()) {
+                return Ok(field);
+            }
+        }
+        Err(NetFieldError)
+    }
+}
+
+impl NetField {
+    const fn as_name(self) -> &'static str {
+        match self {
+            Self::Ip => "ip",
+            Self::Port => "port",
+            Self::Gateway => "gateway",
+            Self::Mask => "mask",
+        }
+    }
+}
+
+/// Text that does not name a network field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("expected one of ip, port, gateway, mask")]
+pub struct NetFieldError;
+
+/// A network setting with its value: both what you write and what a query returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum NetSetting {
+    /// IP address.
+    Ip(Ipv4Addr),
+    /// TCP port the switch listens on (5000 by default).
+    Port(u16),
+    /// Default gateway.
+    Gateway(Ipv4Addr),
+    /// Subnet mask.
+    Mask(Ipv4Addr),
+}
+
+impl NetSetting {
+    /// Which field this value belongs to.
+    pub const fn field(self) -> NetField {
+        match self {
+            Self::Ip(_) => NetField::Ip,
+            Self::Port(_) => NetField::Port,
+            Self::Gateway(_) => NetField::Gateway,
+            Self::Mask(_) => NetField::Mask,
+        }
+    }
+}
+
+impl fmt::Display for NetSetting {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ip(addr) | Self::Gateway(addr) | Self::Mask(addr) => write!(f, "{addr}"),
+            Self::Port(port) => write!(f, "{port}"),
+        }
+    }
+}
+
+/// The four network settings together, as returned by a full query round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct NetConfig {
+    /// IP address, if it was read.
+    pub ip: Option<Ipv4Addr>,
+    /// TCP port, if it was read.
+    pub port: Option<u16>,
+    /// Default gateway, if it was read.
+    pub gateway: Option<Ipv4Addr>,
+    /// Subnet mask, if it was read.
+    pub mask: Option<Ipv4Addr>,
+}
+
+impl NetConfig {
+    /// Records one setting, overwriting any previous value for the same field.
+    pub const fn set(&mut self, setting: NetSetting) {
+        match setting {
+            NetSetting::Ip(addr) => self.ip = Some(addr),
+            NetSetting::Port(port) => self.port = Some(port),
+            NetSetting::Gateway(addr) => self.gateway = Some(addr),
+            NetSetting::Mask(addr) => self.mask = Some(addr),
+        }
+    }
+
+    /// Reads one field back.
+    pub const fn get(&self, field: NetField) -> Option<NetSetting> {
+        match field {
+            NetField::Ip => match self.ip {
+                Some(addr) => Some(NetSetting::Ip(addr)),
+                None => None,
+            },
+            NetField::Port => match self.port {
+                Some(port) => Some(NetSetting::Port(port)),
+                None => None,
+            },
+            NetField::Gateway => match self.gateway {
+                Some(addr) => Some(NetSetting::Gateway(addr)),
+                None => None,
+            },
+            NetField::Mask => match self.mask {
+                Some(addr) => Some(NetSetting::Mask(addr)),
+                None => None,
+            },
+        }
+    }
+
+    /// Whether all four fields are known.
+    pub const fn is_complete(&self) -> bool {
+        self.ip.is_some() && self.port.is_some() && self.gateway.is_some() && self.mask.is_some()
+    }
+}

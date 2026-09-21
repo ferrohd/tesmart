@@ -89,3 +89,64 @@ impl fmt::Display for DisplayTimeout {
         })
     }
 }
+
+/// A plain on/off setting whose wire encoding is `0x00` off, `0x01` on.
+///
+/// Named `Toggle` rather than `Switch` because in this problem domain "switch" is the device,
+/// and `Switch::On` sitting next to [`Request::Switch`](crate::Request::Switch) reads as if it
+/// were about choosing an input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum Toggle {
+    /// Disabled (`0x00`).
+    Off,
+    /// Enabled (`0x01`).
+    On,
+}
+
+impl Toggle {
+    pub(crate) const fn to_byte(self) -> u8 {
+        match self {
+            Self::Off => 0x00,
+            Self::On => 0x01,
+        }
+    }
+
+    /// The inverted encoding used by the dual-monitor keyboard/mouse pass-through command.
+    pub(crate) const fn to_inverted_byte(self) -> u8 {
+        match self {
+            Self::Off => 0x01,
+            Self::On => 0x00,
+        }
+    }
+}
+
+impl fmt::Display for Toggle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Off => "off",
+            Self::On => "on",
+        })
+    }
+}
+
+/// One of the two video outputs of a dual-monitor switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum Output {
+    /// Output A, opcode `0x03`.
+    A,
+    /// Output B, opcode `0x04`.
+    B,
+}
+
+impl fmt::Display for Output {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::A => "A",
+            Self::B => "B",
+        })
+    }
+}

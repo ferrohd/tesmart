@@ -195,3 +195,91 @@ impl fmt::Write for WireBytes {
         Ok(())
     }
 }
+
+/// Bytes that do not fit a [`WireBytes`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum WireError {
+    /// More bytes than the protocol can carry in one unit.
+    #[error("{len} bytes is more than the {max} byte protocol limit")]
+    TooLong {
+        /// The rejected length.
+        len: usize,
+        /// The limit.
+        max: usize,
+    },
+}
+
+/// Which codec produced a transmission. Purely informational, for logging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransmitKind {
+    /// A hex frame.
+    Frame,
+    /// An ASCII string.
+    Ascii,
+    /// Caller-supplied bytes that bypassed the profile tables.
+    Raw,
+}
+
+/// Bytes the caller must write to the switch.
+///
+/// The engine hands these out one at a time, and assumes they reach the wire before the next
+/// [`poll_transmit`](crate::Engine::poll_transmit): command spacing is measured from the moment
+/// the transmission is handed over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[must_use = "a Transmit that is not written to the switch stalls the exchange"]
+pub struct Transmit {
+    bytes: WireBytes,
+    kind: TransmitKind,
+    attempt: u8,
+}
+
+impl Transmit {
+    pub(crate) const fn new(bytes: WireBytes, kind: TransmitKind) -> Self {
+        Self { bytes, kind, attempt: 1 }
+    }
+
+    pub(crate) const fn with_attempt(mut self, attempt: u8) -> Self {
+        self.attempt = attempt;
+        self
+    }
+
+    /// The bytes to write.
+    pub fn bytes(&self) -> WireBytes {
+        self.bytes
+    }
+
+    /// Which codec produced them.
+    pub const fn kind(&self) -> TransmitKind {
+        self.kind
+    }
+
+    /// Which attempt this is, counting from 1. Above 1 means a reply was lost.
+    pub const fn attempt(&self) -> u8 {
+        self.attempt
+    }
+}
+
+impl Deref for Transmit {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.bytes.as_slice()
+    }
+}
+
+impl AsRef<[u8]> for Transmit {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+}
+
+impl fmt::Debug for Transmit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Transmit")
+            .field("kind", &self.kind)
+            .field("attempt", &self.attempt)
+            .field("bytes", &self.bytes)
+            .finish()
+    }
+}

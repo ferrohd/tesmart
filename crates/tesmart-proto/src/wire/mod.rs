@@ -173,3 +173,25 @@ impl fmt::Debug for Hex<'_> {
         fmt::Display::fmt(self, f)
     }
 }
+
+/// Appends UTF-8, failing once [`MAX_WIRE_LEN`] is reached.
+///
+/// Lets the ASCII codec build commands with [`write!`](core::write) without an allocator.
+impl fmt::Write for WireBytes {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let start = self.len as usize;
+        let end = start + s.len();
+        if end > MAX_WIRE_LEN {
+            return Err(fmt::Error);
+        }
+        self.buf[start..end].copy_from_slice(s.as_bytes());
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "end <= MAX_WIRE_LEN, which is far below u8::MAX"
+        )]
+        {
+            self.len = end as u8;
+        }
+        Ok(())
+    }
+}

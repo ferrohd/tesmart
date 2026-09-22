@@ -135,3 +135,41 @@ impl AsRef<[u8]> for WireBytes {
         self.as_slice()
     }
 }
+
+/// Hex, because that is how the protocol documents itself: `AA BB 03 01 02 EE`.
+impl fmt::Debug for WireBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Hex(self.as_slice()).fmt(f)
+    }
+}
+
+/// Formats borrowed bytes the way the protocol documents itself: `AA BB 03 01 02 EE`.
+///
+/// For logging bytes that are not in a [`WireBytes`], such as a read straight off a socket.
+///
+/// ```
+/// use tesmart_proto::wire::Hex;
+///
+/// assert_eq!(format!("{}", Hex(&[0xAA, 0xBB, 0xEE])), "AA BB EE");
+/// assert_eq!(format!("{:?}", Hex(&[])), "");
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Hex<'a>(pub &'a [u8]);
+
+impl fmt::Display for Hex<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, byte) in self.0.iter().enumerate() {
+            if index > 0 {
+                f.write_str(" ")?;
+            }
+            write!(f, "{byte:02X}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Hex<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}

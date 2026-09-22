@@ -587,3 +587,82 @@ impl NetConfig {
         self.ip.is_some() && self.port.is_some() && self.gateway.is_some() && self.mask.is_some()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wire_values_match_the_documented_tables() {
+        assert_eq!(Buzzer::Muted.to_byte(), 0x00);
+        assert_eq!(Buzzer::Audible.to_byte(), 0x01);
+
+        assert_eq!(DisplayTimeout::Seconds10.to_byte(), 0x0A);
+        assert_eq!(DisplayTimeout::Seconds30.to_byte(), 0x1E);
+        assert_eq!(DisplayTimeout::Never.to_byte(), 0x00);
+
+        assert_eq!(Toggle::Off.to_byte(), 0x00);
+        assert_eq!(Toggle::On.to_byte(), 0x01);
+        // keyboard/mouse pass-through on dual-monitor switches is inverted
+        assert_eq!(Toggle::On.to_inverted_byte(), 0x00);
+        assert_eq!(Toggle::Off.to_inverted_byte(), 0x01);
+
+        assert_eq!(Step::Previous.to_byte(), 0x00);
+        assert_eq!(Step::Next.to_byte(), 0x01);
+
+        assert_eq!(HotkeyTrigger::RightCtrl.to_byte(), 0x01);
+        assert_eq!(HotkeyTrigger::ScrollLock.to_byte(), 0x00);
+    }
+
+    #[test]
+    fn switch_interval_enforces_the_documented_limits() {
+        assert_eq!(SwitchInterval::from_raw(0, 5).map(SwitchInterval::to_raw), Ok((0, 5)));
+        assert_eq!(SwitchInterval::from_raw(0, 4), Err(IntervalError::TooShort { seconds: 4 }));
+        assert_eq!(
+            SwitchInterval::from_raw(0x39, 0),
+            Err(IntervalError::FieldOutOfRange { value: 0x39 })
+        );
+        assert_eq!(
+            SwitchInterval::from_raw(0, 0x39),
+            Err(IntervalError::FieldOutOfRange { value: 0x39 })
+        );
+
+        let ninety = SwitchInterval::from_secs(90).unwrap();
+        assert_eq!(ninety.to_raw(), (1, 30));
+        assert_eq!(ninety.as_secs(), 90);
+        // 0x38 minutes is the ceiling, so an hour does not fit
+        assert!(SwitchInterval::from_secs(3600).is_err());
+    }
+
+    #[test]
+    fn matrix_timeout_fits_four_digits() {
+        assert_eq!(MatrixTimeout::from_secs(0).unwrap(), MatrixTimeout::NEVER);
+        assert_eq!(MatrixTimeout::from_secs(9999).unwrap().as_secs(), 9999);
+        assert_eq!(MatrixTimeout::from_secs(10_000), Err(MatrixTimeoutError { seconds: 10_000 }));
+        assert_eq!(std::format!("{}", MatrixTimeout::NEVER), "never");
+    }
+
+    #[test]
+    fn net_field_parses_keywords_and_names() {
+        assert_eq!("ip".parse::<NetField>(), Ok(NetField::Ip));
+        assert_eq!("GW".parse::<NetField>(), Ok(NetField::Gateway));
+        assert_eq!("gateway".parse::<NetField>(), Ok(NetField::Gateway));
+        assert_eq!("MA".parse::<NetField>(), Ok(NetField::Mask));
+        assert!("netmask".parse::<NetField>().is_err());
+    }
+
+    #[test]
+    fn net_config_round_trips_settings() {
+        let mut config = NetConfig::default();
+        assert!(!config.is_complete());
+
+        config.set(NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12)));
+        config.set(NetSetting::Port(5000));
+        config.set(NetSetting::Gateway(Ipv4Addr::new(10, 0, 2, 1)));
+        config.set(NetSetting::Mask(Ipv4Addr::new(255, 255, 255, 0)));
+
+        assert!(config.is_complete());
+        assert_eq!(config.get(NetField::Port), Some(NetSetting::Port(5000)));
+        assert_eq!(config.get(NetField::Ip).map(NetSetting::field), Some(NetField::Ip));
+    }
+}

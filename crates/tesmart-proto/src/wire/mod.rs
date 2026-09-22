@@ -283,3 +283,50 @@ impl fmt::Debug for Transmit {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::fmt::Write;
+
+    #[test]
+    fn debug_is_hex_like_the_protocol_docs() {
+        let bytes = WireBytes::from_slice(&[0xAA, 0xBB, 0x03, 0x01, 0x02, 0xEE]).unwrap();
+        assert_eq!(std::format!("{bytes:?}"), "AA BB 03 01 02 EE");
+        assert_eq!(std::format!("{:?}", WireBytes::new()), "");
+    }
+
+    #[test]
+    fn rejects_and_truncates_oversized_input() {
+        let big = [0u8; MAX_WIRE_LEN + 1];
+        assert_eq!(
+            WireBytes::from_slice(&big),
+            Err(WireError::TooLong { len: MAX_WIRE_LEN + 1, max: MAX_WIRE_LEN })
+        );
+
+        let (bytes, truncated) = WireBytes::from_slice_truncating(&big);
+        assert!(truncated);
+        assert_eq!(bytes.len(), MAX_WIRE_LEN);
+    }
+
+    #[test]
+    fn writes_text_until_full() {
+        let mut bytes = WireBytes::new();
+        write!(&mut bytes, "IP:{}.{}.{}.{};", 10, 0, 2, 12).unwrap();
+        assert_eq!(bytes.as_str(), Some("IP:10.0.2.12;"));
+        assert_eq!(bytes.len(), 13);
+
+        let mut full = WireBytes::new();
+        assert!(write!(&mut full, "{}", "x".repeat(MAX_WIRE_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn transmit_derefs_to_its_bytes() {
+        let transmit =
+            Transmit::new(WireBytes::from_slice(&[0xAA, 0xBB]).unwrap(), TransmitKind::Frame)
+                .with_attempt(3);
+        assert_eq!(&*transmit, &[0xAA, 0xBB]);
+        assert_eq!(transmit.attempt(), 3);
+        assert_eq!(transmit.kind(), TransmitKind::Frame);
+    }
+}

@@ -6,10 +6,13 @@
 //! with garbage, or interrupted by an unsolicited port report. [`StreamDecoder`] is the part
 //! that copes with that; the rest are pure codecs.
 
+pub mod frame;
 pub(crate) mod text;
 
 use core::fmt;
 use core::ops::Deref;
+
+pub use crate::wire::frame::{Frame, Payload};
 
 /// The largest *logical* wire unit this crate stores.
 ///

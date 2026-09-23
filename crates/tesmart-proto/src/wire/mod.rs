@@ -7,6 +7,7 @@
 //! that copes with that; the rest are pure codecs.
 
 pub mod frame;
+pub mod matrix;
 pub(crate) mod text;
 
 use core::fmt;

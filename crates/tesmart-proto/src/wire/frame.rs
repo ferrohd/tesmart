@@ -119,3 +119,34 @@ impl Frame {
         Transmit::new(self.encode(), TransmitKind::Frame)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encodes_the_documented_six_byte_frame() {
+        // docs/protocol-reference.md: "switch to PC2" is AA BB 03 01 02 EE
+        assert_eq!(
+            Frame::one(0x01, 0x02).encode().as_slice(),
+            &[0xAA, 0xBB, 0x03, 0x01, 0x02, 0xEE]
+        );
+    }
+
+    #[test]
+    fn encodes_the_seven_byte_dual_monitor_frame() {
+        // AA BB 04 09 MM SS EE: the length byte follows the payload
+        let frame = Frame::two(0x09, [0x00, 0x05]);
+        assert_eq!(frame.len_byte(), 0x04);
+        assert_eq!(frame.encode().as_slice(), &[0xAA, 0xBB, 0x04, 0x09, 0x00, 0x05, 0xEE]);
+    }
+
+    #[test]
+    fn length_byte_is_derived_from_the_payload() {
+        assert_eq!(Frame::one(0x01, 0x01).len_byte(), 0x03);
+        assert_eq!(Payload::One(0).len(), 1);
+        assert_eq!(Payload::Two([0, 0]).len(), 2);
+        assert_eq!(Payload::One(0x7F).as_slice(), &[0x7F]);
+        assert_eq!(Payload::Two([1, 2]).as_slice(), &[1, 2]);
+    }
+}

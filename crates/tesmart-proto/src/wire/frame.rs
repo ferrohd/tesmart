@@ -35,3 +35,87 @@ pub const MAX_LEN_BYTE: u8 = 0x08;
 /// It lives here rather than in a profile because the decoder needs it to turn a frame into a
 /// port number; profiles decide what, if anything, it means for their family.
 pub const OPCODE_PORT_REPORT: u8 = 0x11;
+
+/// The data bytes of a frame.
+///
+/// One byte for every documented command, two for the dual-monitor auto-switch interval. Making
+/// this an enum rather than a slice means the length byte is always derived and never typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Payload {
+    /// A single argument byte, `len = 0x03`.
+    One(u8),
+    /// Two argument bytes, `len = 0x04`.
+    Two([u8; 2]),
+}
+
+impl Payload {
+    /// How many data bytes.
+    pub const fn len(&self) -> usize {
+        match self {
+            Self::One(_) => 1,
+            Self::Two(_) => 2,
+        }
+    }
+
+    /// Always false: every frame carries at least one data byte.
+    pub const fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// The data bytes.
+    pub const fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::One(byte) => core::slice::from_ref(byte),
+            Self::Two(bytes) => bytes.as_slice(),
+        }
+    }
+}
+
+/// A decoded or ready-to-encode hex frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Frame {
+    /// Byte 3: the command.
+    pub opcode: u8,
+    /// Bytes 4..: the argument.
+    pub payload: Payload,
+}
+
+impl Frame {
+    /// A frame with one argument byte.
+    pub const fn one(opcode: u8, value: u8) -> Self {
+        Self { opcode, payload: Payload::One(value) }
+    }
+
+    /// A frame with two argument bytes.
+    pub const fn two(opcode: u8, values: [u8; 2]) -> Self {
+        Self { opcode, payload: Payload::Two(values) }
+    }
+
+    /// Byte 2: `data.len() + 2`.
+    pub const fn len_byte(&self) -> u8 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Payload::len() is 1 or 2 by construction"
+        )]
+        let data_len = self.payload.len() as u8;
+        data_len + 2
+    }
+
+    /// The whole frame on the wire: 6 bytes for a one-byte payload, 7 for two.
+    pub fn encode(&self) -> WireBytes {
+        let data = self.payload.as_slice();
+        let mut raw = [0u8; 7];
+        raw[0] = HEADER[0];
+        raw[1] = HEADER[1];
+        raw[2] = self.len_byte();
+        raw[3] = self.opcode;
+        raw[4..4 + data.len()].copy_from_slice(data);
+        raw[4 + data.len()] = TERMINATOR;
+        WireBytes::from_bounded(&raw[..5 + data.len()])
+    }
+
+    /// The frame as a [`Transmit`].
+    pub(crate) fn to_transmit(self) -> Transmit {
+        Transmit::new(self.encode(), TransmitKind::Frame)
+    }
+}

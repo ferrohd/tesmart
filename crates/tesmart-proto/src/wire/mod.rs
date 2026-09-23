@@ -6,6 +6,8 @@
 //! with garbage, or interrupted by an unsolicited port report. [`StreamDecoder`] is the part
 //! that copes with that; the rest are pure codecs.
 
+pub(crate) mod text;
+
 use core::fmt;
 use core::ops::Deref;
 

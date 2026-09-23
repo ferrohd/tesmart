@@ -61,3 +61,56 @@ pub enum MatrixCommand {
     /// Mute or unmute the buzzer (`MT00BZEN01NT` mutes).
     Buzzer(Buzzer),
 }
+
+/// Parses an `MT00`...`NT` matrix command, or returns `None` if it is not one.
+///
+/// Every command has a six-character body: a two-letter keyword and four digits, except the
+/// buzzer, whose keyword is four letters and whose field is two digits.
+pub fn parse_command(text: &str) -> Option<MatrixCommand> {
+    let body = strip_prefix_ignore_case(text, "MT00")?;
+    let body = strip_suffix_ignore_case(body, "NT")?;
+
+    // `BZEN` is the one four-letter keyword, so it is matched before the split.
+    if let Some(field) = strip_prefix_ignore_case(body, "BZEN") {
+        return match digits(field, 2)? {
+            // Inverted against the KVM buzzer command, as documented.
+            1 => Some(MatrixCommand::Buzzer(Buzzer::Muted)),
+            0 => Some(MatrixCommand::Buzzer(Buzzer::Audible)),
+            _ => None,
+        };
+    }
+
+    let (keyword, args) = body.split_at_checked(2)?;
+    let whole = digits(args, 4)?;
+    let high = digits(args.get(..2)?, 2)?;
+    let low = digits(args.get(2..)?, 2)?;
+    let port = |value: u16| u8::try_from(value).ok().and_then(|n| Port::new(n).ok());
+
+    if keyword.eq_ignore_ascii_case("SW") {
+        return match (high, low) {
+            (0, 0) => Some(MatrixCommand::Mirror),
+            (_, 0) => Some(MatrixCommand::RouteAll(port(high)?)),
+            // An output with no input is not a command the documents define.
+            (0, _) => None,
+            _ => Some(MatrixCommand::Route { input: port(high)?, output: port(low)? }),
+        };
+    }
+    if keyword.eq_ignore_ascii_case("RD") {
+        return match (high, low) {
+            (0, 0) => Some(MatrixCommand::ReadRouting),
+            // `MT00RD01XXNT` loads preset XX: one digit away from reading the routing.
+            (1, slot) => Some(MatrixCommand::LoadPreset(preset(slot)?)),
+            _ => None,
+        };
+    }
+    if keyword.eq_ignore_ascii_case("SV") {
+        return match (high, low) {
+            (0, slot) => Some(MatrixCommand::SavePreset(preset(slot)?)),
+            _ => None,
+        };
+    }
+    if keyword.eq_ignore_ascii_case("CT") {
+        return MatrixTimeout::from_secs(whole).ok().map(MatrixCommand::DisplayTimeout);
+    }
+    None
+}

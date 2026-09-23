@@ -14,6 +14,7 @@ use core::fmt;
 use core::ops::Deref;
 
 pub use crate::wire::frame::{Frame, Payload};
+pub use crate::wire::matrix::{MatrixCommand, RoutingReply};
 
 /// The largest *logical* wire unit this crate stores.
 ///

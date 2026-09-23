@@ -114,3 +114,82 @@ pub fn parse_command(text: &str) -> Option<MatrixCommand> {
     }
     None
 }
+
+/// Renders the routing report a matrix answers `MT00RD0000NT` with.
+///
+/// `LINK:O1I2;O2I1;...;END`, with ports above 9 written as `A`-`G` the way a 16x16 does. Used
+/// by the device emulator.
+///
+/// # Panics
+///
+/// Panics if more pairs are given than fit [`MAX_WIRE_LEN`](crate::wire::MAX_WIRE_LEN), which
+/// for sixteen outputs it does not.
+pub fn encode_link_reply(entries: &[(Port, Port)]) -> WireBytes {
+    let mut bytes = WireBytes::new();
+    bytes.write_str("LINK:").expect("the prefix fits");
+    for (output, input) in entries {
+        bytes
+            .write_fmt(format_args!("O{}I{};", LinkPort(*output), LinkPort(*input)))
+            .expect("sixteen pairs fit in MAX_WIRE_LEN");
+    }
+    bytes.write_str("END").expect("the terminator fits");
+    bytes
+}
+
+/// A matrix routing report, parsed out of a `LINK:...;END` reply.
+///
+/// The documents describe one pair, as `LINK:OYIX;END` with `Y` the output and `X` the input,
+/// and do not say how a multi-output matrix lays out the rest. This parser therefore collects
+/// every `O<port>I<port>` pair it can find, separated by semicolons, and ignores anything else.
+/// The pair layout is documented; the repetition is not.
+///
+/// Port fields are not plain decimal. A 16x16 matrix prints them as single characters from
+/// `1`-`9` then `A`-`G`, so output 16 arrives as `G`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoutingReply {
+    entries: [(Port, Port); Port::MAX as usize],
+    len: u8,
+}
+
+impl RoutingReply {
+    /// Parses the body of a `LINK:` reply, with the `LINK:` prefix already removed.
+    pub(crate) fn parse(body: &str) -> Option<Self> {
+        let body = body.trim().trim_end_matches("END").trim_end_matches(';');
+        let mut entries = [(Port::FIRST, Port::FIRST); Port::MAX as usize];
+        let mut len = 0usize;
+
+        for token in body.split(';') {
+            let token = token.trim();
+            if token.is_empty() || len == entries.len() {
+                continue;
+            }
+            let Some(rest) = strip_prefix_ignore_case(token, "O") else { continue };
+            let Some((output, input)) = rest.split_once(['I', 'i']) else { continue };
+            let (Some(output), Some(input)) = (parse_link_port(output), parse_link_port(input))
+            else {
+                continue;
+            };
+            entries[len] = (output, input);
+            len += 1;
+        }
+
+        if len == 0 {
+            return None;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "len is bounded by entries.len() == 16"
+        )]
+        Some(Self { entries, len: len as u8 })
+    }
+
+    /// The `(output, input)` pairs that were understood.
+    pub fn entries(&self) -> &[(Port, Port)] {
+        &self.entries[..self.len as usize]
+    }
+
+    /// The input feeding one output, if the report mentions it.
+    pub fn input_for(&self, output: Port) -> Option<Port> {
+        self.entries().iter().find(|(out, _)| *out == output).map(|(_, input)| *input)
+    }
+}

@@ -186,3 +186,38 @@ impl fmt::Display for Padded {
         }
     }
 }
+
+/// Something a switch said in ASCII.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AsciiReply {
+    /// The value of one network field, normalised.
+    Net(NetSetting),
+    /// `OK`: a write was accepted. Settings only take effect after a power cycle.
+    Ack,
+    /// A matrix routing report.
+    Routing(RoutingReply),
+    /// Text this crate does not recognise.
+    Unknown,
+}
+
+/// Parses a reply from a switch.
+///
+/// Leading zeros are stripped per octet, so `IP:010.000.002.012` becomes `10.0.2.12` and
+/// `PT:05000` becomes `5000`.
+pub fn parse_reply(text: &str) -> AsciiReply {
+    let text = text.trim().trim_end_matches(';').trim();
+    if text.is_empty() {
+        return AsciiReply::Unknown;
+    }
+    if text.eq_ignore_ascii_case("ok") {
+        return AsciiReply::Ack;
+    }
+    if let Some(body) = strip_prefix_ignore_case(text, "LINK:") {
+        return RoutingReply::parse(body).map_or(AsciiReply::Unknown, AsciiReply::Routing);
+    }
+    match parse_field_value(text) {
+        Some(setting) => AsciiReply::Net(setting),
+        None => AsciiReply::Unknown,
+    }
+}

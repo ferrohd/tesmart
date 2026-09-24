@@ -105,3 +105,84 @@ impl From<AsciiDialect> for AsciiStyle {
         Self::new(dialect)
     }
 }
+
+/// Encodes a query for one network field.
+pub fn encode_query(field: NetField, dialect: AsciiDialect) -> Transmit {
+    let bytes = match dialect {
+        AsciiDialect::Captured => render(format_args!("{}?", field.keyword())),
+        AsciiDialect::TesmartSh => render(format_args!("{}?;", field.keyword())),
+    };
+    Transmit::new(bytes, TransmitKind::Ascii)
+}
+
+/// Encodes a write of one network field.
+pub fn encode_set(setting: NetSetting, dialect: AsciiDialect) -> Transmit {
+    let keyword = setting.field().keyword();
+    let bytes = match dialect {
+        AsciiDialect::Captured => render(format_args!("{keyword}:{setting};")),
+        AsciiDialect::TesmartSh => render(format_args!("{keyword}: {setting};")),
+    };
+    Transmit::new(bytes, TransmitKind::Ascii)
+}
+
+/// Encodes a reply the way a switch does: zero padded, with no space.
+///
+/// Used by the device emulator so tests see the padding real hardware sends.
+pub fn encode_padded_reply(setting: NetSetting) -> WireBytes {
+    render(format_args!("{}:{}", setting.field().keyword(), Padded(setting)))
+}
+
+/// Encodes a query for one network field in the matrix RS232 form (`MT8003IP?`).
+///
+/// Every query shares the one `MT8003` prefix. The dialect does not apply: the wrapped forms
+/// are documented with exactly one spelling, so there is nothing to choose between.
+pub fn encode_wrapped_query(field: NetField) -> Transmit {
+    let bytes = render(format_args!("{QUERY_PREFIX}{}?", field.keyword()));
+    Transmit::new(bytes, TransmitKind::Ascii)
+}
+
+/// Encodes a write of one network field in the matrix RS232 form (`MT8019IP:...;`).
+///
+/// The prefix is `MT8019` for the address fields and `MT8009` for the port. That inconsistency
+/// is printed identically in TESmart's 4x4, 8x8 and 16x16 documents, so it is transcribed
+/// rather than corrected.
+///
+/// Values are zero padded to the width the documents give (`AAA.BBB.CCC.DDD` and `XXXXX`),
+/// unlike the bare LAN form, where captures of the official controller show no padding.
+pub fn encode_wrapped_set(setting: NetSetting) -> Transmit {
+    let field = setting.field();
+    let prefix = write_prefix(field);
+    let bytes = render(format_args!("{prefix}{}:{};", field.keyword(), Padded(setting)));
+    Transmit::new(bytes, TransmitKind::Ascii)
+}
+
+/// The prefix every wrapped query shares.
+const QUERY_PREFIX: &str = "MT8003";
+
+/// The prefix a wrapped write uses, which is not the same for every field.
+const fn write_prefix(field: NetField) -> &'static str {
+    match field {
+        // Printed as `MT8009PT:` in all three matrix documents, where the other three fields
+        // use `MT8019`. Transcribed as documented.
+        NetField::Port => "MT8009",
+        NetField::Ip | NetField::Gateway | NetField::Mask => "MT8019",
+    }
+}
+
+/// Every prefix that wraps a network command, for stripping one off on the device side.
+const WRAPPERS: [&str; 3] = [QUERY_PREFIX, "MT8019", "MT8009"];
+
+/// A setting's value, zero padded the way hardware pads it: `010.000.002.012`, `05000`.
+struct Padded(NetSetting);
+
+impl fmt::Display for Padded {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            NetSetting::Ip(addr) | NetSetting::Gateway(addr) | NetSetting::Mask(addr) => {
+                let [first, second, third, fourth] = addr.octets();
+                write!(f, "{first:03}.{second:03}.{third:03}.{fourth:03}")
+            }
+            NetSetting::Port(port) => write!(f, "{port:05}"),
+        }
+    }
+}

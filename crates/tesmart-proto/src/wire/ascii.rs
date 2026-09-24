@@ -221,3 +221,89 @@ pub fn parse_reply(text: &str) -> AsciiReply {
         None => AsciiReply::Unknown,
     }
 }
+
+/// Something a controller said in ASCII, as seen from the switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AsciiCommand {
+    /// A query for one network field (`IP?`).
+    Query(NetField),
+    /// A write of one network field (`IP:10.0.2.12;`).
+    Set(NetSetting),
+    /// A matrix command (`MT00SW0102NT`).
+    Matrix(MatrixCommand),
+    /// Text the emulator does not implement.
+    Unknown,
+}
+
+/// Parses a command sent to a switch. Used by the device emulator.
+///
+/// Accepts both scopes: an `MT80xx` wrapper is stripped before the command is read, so a
+/// matrix emulator understands `MT8003IP?` and `IP?` alike.
+pub fn parse_command(text: &str) -> AsciiCommand {
+    let text = text.trim();
+    // Matrix commands are checked first: `MT00...NT` cannot be confused with anything else,
+    // and the network wrapper strips a different prefix.
+    if let Some(command) = matrix::parse_command(text) {
+        return AsciiCommand::Matrix(command);
+    }
+
+    let text = strip_wrapper(text);
+    if let Some(keyword) = text.strip_suffix('?') {
+        for field in NetField::ALL {
+            if keyword.trim().eq_ignore_ascii_case(field.keyword()) {
+                return AsciiCommand::Query(field);
+            }
+        }
+        return AsciiCommand::Unknown;
+    }
+    match parse_field_value(text.trim_end_matches(';')) {
+        Some(setting) => AsciiCommand::Set(setting),
+        None => AsciiCommand::Unknown,
+    }
+}
+
+fn parse_field_value(text: &str) -> Option<NetSetting> {
+    for field in NetField::ALL {
+        let Some(rest) = strip_prefix_ignore_case(text, field.keyword()) else {
+            continue;
+        };
+        let value = rest.trim_start().strip_prefix(':')?.trim();
+        return match field {
+            NetField::Ip => parse_ipv4(value).map(NetSetting::Ip),
+            NetField::Gateway => parse_ipv4(value).map(NetSetting::Gateway),
+            NetField::Mask => parse_ipv4(value).map(NetSetting::Mask),
+            NetField::Port => value.parse().ok().map(NetSetting::Port),
+        };
+    }
+    None
+}
+
+/// Parses a dotted quad, accepting the zero padding switches reply with.
+///
+/// `Ipv4Addr::from_str` rejects `010.000.002.012` outright, so each octet is parsed on its own.
+fn parse_ipv4(text: &str) -> Option<Ipv4Addr> {
+    let mut octets = [0u8; 4];
+    let mut seen = 0usize;
+    for part in text.split('.') {
+        if seen == octets.len() {
+            return None;
+        }
+        octets[seen] = part.trim().parse().ok()?;
+        seen += 1;
+    }
+    if seen != octets.len() {
+        return None;
+    }
+    Some(Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]))
+}
+
+/// Removes an `MT80xx` wrapper, if there is one.
+fn strip_wrapper(text: &str) -> &str {
+    for wrapper in WRAPPERS {
+        if let Some(rest) = strip_prefix_ignore_case(text, wrapper) {
+            return rest;
+        }
+    }
+    text
+}

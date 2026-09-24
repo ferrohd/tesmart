@@ -240,3 +240,145 @@ fn strip_suffix_ignore_case<'a>(text: &'a str, suffix: &str) -> Option<&'a str> 
     let (rest, tail) = text.split_at_checked(at)?;
     tail.eq_ignore_ascii_case(suffix).then_some(rest)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn port(number: u8) -> Port {
+        Port::new(number).expect("a valid port")
+    }
+
+    fn routing(body: &str) -> RoutingReply {
+        RoutingReply::parse(body).unwrap_or_else(|| panic!("{body:?} did not parse"))
+    }
+
+    #[test]
+    fn parses_every_documented_command() {
+        assert_eq!(
+            parse_command("MT00SW0102NT"),
+            Some(MatrixCommand::Route { input: port(1), output: port(2) })
+        );
+        assert_eq!(parse_command("MT00SW0300NT"), Some(MatrixCommand::RouteAll(port(3))));
+        assert_eq!(parse_command("MT00SW0000NT"), Some(MatrixCommand::Mirror));
+        assert_eq!(parse_command("MT00RD0000NT"), Some(MatrixCommand::ReadRouting));
+        assert_eq!(
+            parse_command("MT00RD0103NT"),
+            Some(MatrixCommand::LoadPreset(Preset::new(3).unwrap()))
+        );
+        assert_eq!(
+            parse_command("MT00SV0008NT"),
+            Some(MatrixCommand::SavePreset(Preset::new(8).unwrap()))
+        );
+        assert_eq!(
+            parse_command("MT00CT0030NT"),
+            Some(MatrixCommand::DisplayTimeout(MatrixTimeout::from_secs(30).unwrap()))
+        );
+        // 16x16 addresses two digits per field
+        assert_eq!(
+            parse_command("MT00SW1616NT"),
+            Some(MatrixCommand::Route { input: port(16), output: port(16) })
+        );
+        // and the case is not promised
+        assert_eq!(parse_command("mt00sw0000nt"), Some(MatrixCommand::Mirror));
+    }
+
+    /// `MT00RD` is two commands one character apart.
+    #[test]
+    fn reading_the_routing_is_not_loading_preset_one() {
+        assert_eq!(parse_command("MT00RD0000NT"), Some(MatrixCommand::ReadRouting));
+        assert_eq!(parse_command("MT00RD0101NT"), Some(MatrixCommand::LoadPreset(Preset::FIRST)));
+    }
+
+    /// The buzzer field is the opposite way round from the KVM command.
+    #[test]
+    fn the_buzzer_is_inverted_against_the_kvm_command() {
+        assert_eq!(parse_command("MT00BZEN01NT"), Some(MatrixCommand::Buzzer(Buzzer::Muted)));
+        assert_eq!(parse_command("MT00BZEN00NT"), Some(MatrixCommand::Buzzer(Buzzer::Audible)));
+    }
+
+    #[test]
+    fn rejects_anything_that_is_not_a_matrix_command() {
+        for text in [
+            "IP?",           // the other ASCII language
+            "MT00SW0102",    // no terminator
+            "SW0102NT",      // no envelope
+            "MT00ZZ0102NT",  // unknown keyword
+            "MT00SW01XXNT",  // not digits
+            "MT00SW0010NT",  // output with no input
+            "MT00RD0209NT",  // neither a read nor a preset
+            "MT00SV0009NT",  // preset 9 does not exist
+            "MT00CT99999NT", // five digits
+            "",
+        ] {
+            assert_eq!(parse_command(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn renders_the_report_a_matrix_answers_with() {
+        let pairs = [(port(1), port(1)), (port(2), port(1))];
+        assert_eq!(encode_link_reply(&pairs).as_str(), Some("LINK:O1I1;O2I1;END"));
+
+        // ports above 9 are letters, so a full 16x16 report is 88 bytes
+        let wide: std::vec::Vec<_> = (1..=16).map(|n| (port(n), port(n))).collect();
+        let reply = encode_link_reply(&wide);
+        assert_eq!(reply.len(), 88);
+        assert_eq!(
+            reply.as_str(),
+            Some(
+                "LINK:O1I1;O2I2;O3I3;O4I4;O5I5;O6I6;O7I7;O8I8;O9I9;OAIA;OBIB;OCIC;ODID;OEIE;OFIF;OGIG;END"
+            )
+        );
+    }
+
+    #[test]
+    fn parses_reports_best_effort() {
+        let report = routing("O1I2;O2I1;END");
+        assert_eq!(report.entries().len(), 2);
+        assert_eq!(report.input_for(port(1)), Some(port(2)));
+        assert_eq!(report.input_for(port(2)), Some(port(1)));
+        assert_eq!(report.input_for(port(3)), None);
+
+        assert_eq!(RoutingReply::parse(";END"), None);
+    }
+
+    /// A 16x16 prints ports above 9 as `A`-`G`, which is not decimal.
+    #[test]
+    fn parses_the_16x16_hex_style_port_digits() {
+        let report = routing("OAI1;OGIG;O9IF;END");
+        let entries = report.entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!((entries[0].0.get(), entries[0].1.get()), (10, 1));
+        assert_eq!((entries[1].0.get(), entries[1].1.get()), (16, 16));
+        assert_eq!((entries[2].0.get(), entries[2].1.get()), (9, 15));
+
+        // lower case too, since nothing promises the case
+        let lower = routing("ogia;END");
+        assert_eq!((lower.entries()[0].0.get(), lower.entries()[0].1.get()), (16, 10));
+    }
+
+    #[test]
+    fn rejects_port_digits_no_matrix_can_mean() {
+        // H would be 17, past the end of the alphabet the documents use
+        assert_eq!(RoutingReply::parse("OHI1;END"), None);
+        // 0 is not a port: the documents count outputs from 1
+        assert_eq!(RoutingReply::parse("O0I1;END"), None);
+        assert_eq!(RoutingReply::parse("O1I0;END"), None);
+        assert_eq!(RoutingReply::parse("O17I1;END"), None);
+
+        // and a decimal field is still read, if one ever shows up
+        let decimal = routing("O10I16;END");
+        assert_eq!((decimal.entries()[0].0.get(), decimal.entries()[0].1.get()), (10, 16));
+    }
+
+    /// Every rendered report must parse back to what produced it.
+    #[test]
+    fn reports_round_trip() {
+        let pairs: std::vec::Vec<_> = (1..=16).map(|n| (port(n), port(17 - n))).collect();
+        let rendered = encode_link_reply(&pairs);
+        let text = rendered.as_str().expect("ASCII");
+        let body = text.strip_prefix("LINK:").expect("the prefix");
+        assert_eq!(routing(body).entries(), pairs.as_slice());
+    }
+}

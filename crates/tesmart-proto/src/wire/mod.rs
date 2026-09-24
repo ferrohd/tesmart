@@ -6,6 +6,7 @@
 //! with garbage, or interrupted by an unsolicited port report. [`StreamDecoder`] is the part
 //! that copes with that; the rest are pure codecs.
 
+pub mod ascii;
 pub mod frame;
 pub mod matrix;
 pub(crate) mod text;

@@ -193,3 +193,50 @@ impl RoutingReply {
         self.entries().iter().find(|(out, _)| *out == output).map(|(_, input)| *input)
     }
 }
+
+/// A port as a `LINK:` reply writes it: `1`-`9` then `A`-`G`.
+struct LinkPort(Port);
+
+impl fmt::Display for LinkPort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0.get() {
+            number @ 1..=9 => write!(f, "{number}"),
+            number => f.write_char(char::from(b'A' + number - 10)),
+        }
+    }
+}
+
+/// Parses one port field of a `LINK:` reply.
+///
+/// 4x4 and 8x8 matrices print plain digits (`1`-`4` and `1`-`8`). A 16x16 prints a single
+/// character from `1`-`9`, `A`, `B`, `C`-`G`, so 10 is `A` and 16 is `G`. A longer field is
+/// read as decimal: no document shows one, but accepting it costs nothing and a firmware that
+/// printed `O10I16` would otherwise be unreadable.
+fn parse_link_port(field: &str) -> Option<Port> {
+    let field = field.trim();
+    let number = match *field.as_bytes() {
+        [digit @ b'1'..=b'9'] => digit - b'0',
+        [letter @ (b'A'..=b'G' | b'a'..=b'g')] => (letter | 0x20) - b'a' + 10,
+        [_] => return None,
+        _ => field.parse().ok()?,
+    };
+    Port::new(number).ok()
+}
+
+/// Reads a fixed-width run of decimal digits, rejecting anything else.
+fn digits(text: &str, width: usize) -> Option<u16> {
+    if text.len() != width || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    text.parse().ok()
+}
+
+fn preset(slot: u16) -> Option<Preset> {
+    u8::try_from(slot).ok().and_then(|slot| Preset::new(slot).ok())
+}
+
+fn strip_suffix_ignore_case<'a>(text: &'a str, suffix: &str) -> Option<&'a str> {
+    let at = text.len().checked_sub(suffix.len())?;
+    let (rest, tail) = text.split_at_checked(at)?;
+    tail.eq_ignore_ascii_case(suffix).then_some(rest)
+}

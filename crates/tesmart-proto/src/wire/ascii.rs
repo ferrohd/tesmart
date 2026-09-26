@@ -307,3 +307,153 @@ fn strip_wrapper(text: &str) -> &str {
     }
     text
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text(bytes: &WireBytes) -> &str {
+        bytes.as_str().expect("ASCII")
+    }
+
+    #[test]
+    fn encodes_both_documented_dialects() {
+        let captured = encode_query(NetField::Ip, AsciiDialect::Captured);
+        assert_eq!(text(&captured.bytes()), "IP?");
+        let tesmart_sh = encode_query(NetField::Ip, AsciiDialect::TesmartSh);
+        assert_eq!(text(&tesmart_sh.bytes()), "IP?;");
+
+        let setting = NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12));
+        assert_eq!(text(&encode_set(setting, AsciiDialect::Captured).bytes()), "IP:10.0.2.12;");
+        assert_eq!(text(&encode_set(setting, AsciiDialect::TesmartSh).bytes()), "IP: 10.0.2.12;");
+    }
+
+    #[test]
+    fn encodes_every_field() {
+        for (setting, expected) in [
+            (NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12)), "IP:10.0.2.12;"),
+            (NetSetting::Port(5000), "PT:5000;"),
+            (NetSetting::Gateway(Ipv4Addr::new(10, 0, 2, 1)), "GW:10.0.2.1;"),
+            (NetSetting::Mask(Ipv4Addr::new(255, 255, 255, 0)), "MA:255.255.255.0;"),
+        ] {
+            assert_eq!(text(&encode_set(setting, AsciiDialect::Captured).bytes()), expected);
+        }
+    }
+
+    #[test]
+    fn encodes_the_documented_matrix_rs232_forms() {
+        // Queries all share one prefix.
+        for (field, expected) in [
+            (NetField::Ip, "MT8003IP?"),
+            (NetField::Port, "MT8003PT?"),
+            (NetField::Gateway, "MT8003GW?"),
+            (NetField::Mask, "MT8003MA?"),
+        ] {
+            assert_eq!(text(&encode_wrapped_query(field).bytes()), expected);
+        }
+
+        // Writes do not: the port field uses MT8009 where the rest use MT8019.
+        for (setting, expected) in [
+            (NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12)), "MT8019IP:010.000.002.012;"),
+            (NetSetting::Port(5000), "MT8009PT:05000;"),
+            (NetSetting::Gateway(Ipv4Addr::new(10, 0, 2, 1)), "MT8019GW:010.000.002.001;"),
+            (NetSetting::Mask(Ipv4Addr::new(255, 255, 255, 0)), "MT8019MA:255.255.255.000;"),
+        ] {
+            assert_eq!(text(&encode_wrapped_set(setting).bytes()), expected);
+        }
+    }
+
+    #[test]
+    fn the_longest_command_still_fits_one_wire_unit() {
+        let longest = encode_wrapped_set(NetSetting::Mask(Ipv4Addr::BROADCAST));
+        assert_eq!(text(&longest.bytes()), "MT8019MA:255.255.255.255;");
+        assert!(longest.bytes().len() <= crate::wire::MAX_WIRE_LEN);
+    }
+
+    #[test]
+    fn a_device_understands_both_scopes() {
+        assert_eq!(parse_command("MT8003IP?"), AsciiCommand::Query(NetField::Ip));
+        assert_eq!(parse_command("mt8003pt?"), AsciiCommand::Query(NetField::Port));
+        assert_eq!(
+            parse_command("MT8019IP:010.000.002.012;"),
+            AsciiCommand::Set(NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12)))
+        );
+        assert_eq!(parse_command("MT8009PT:05000;"), AsciiCommand::Set(NetSetting::Port(5000)));
+        // and the bare forms keep working
+        assert_eq!(parse_command("IP?"), AsciiCommand::Query(NetField::Ip));
+    }
+
+    #[test]
+    fn replies_are_padded_the_way_hardware_pads_them() {
+        assert_eq!(
+            text(&encode_padded_reply(NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12)))),
+            "IP:010.000.002.012"
+        );
+        assert_eq!(text(&encode_padded_reply(NetSetting::Port(5000))), "PT:05000");
+    }
+
+    #[test]
+    fn strips_zero_padding_when_parsing() {
+        assert_eq!(
+            parse_reply("IP:010.000.002.012"),
+            AsciiReply::Net(NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12)))
+        );
+        assert_eq!(parse_reply("PT:05000;"), AsciiReply::Net(NetSetting::Port(5000)));
+        assert_eq!(
+            parse_reply("MA:255.255.255.000"),
+            AsciiReply::Net(NetSetting::Mask(Ipv4Addr::new(255, 255, 255, 0)))
+        );
+        assert_eq!(
+            parse_reply("GW: 010.000.002.001 "),
+            AsciiReply::Net(NetSetting::Gateway(Ipv4Addr::new(10, 0, 2, 1)))
+        );
+    }
+
+    #[test]
+    fn recognises_acknowledgements_and_junk() {
+        assert_eq!(parse_reply("OK"), AsciiReply::Ack);
+        assert_eq!(parse_reply("ok;"), AsciiReply::Ack);
+        assert_eq!(parse_reply(""), AsciiReply::Unknown);
+        assert_eq!(parse_reply("IP:not.an.address"), AsciiReply::Unknown);
+        assert_eq!(parse_reply("IP:1.2.3"), AsciiReply::Unknown);
+        assert_eq!(parse_reply("IP:1.2.3.4.5"), AsciiReply::Unknown);
+        assert_eq!(parse_reply("XX:1.2.3.4"), AsciiReply::Unknown);
+    }
+
+    #[test]
+    fn parses_commands_from_the_device_side() {
+        assert_eq!(parse_command("IP?"), AsciiCommand::Query(NetField::Ip));
+        assert_eq!(parse_command("pt?"), AsciiCommand::Query(NetField::Port));
+        assert_eq!(
+            parse_command("IP: 10.0.2.12;"),
+            AsciiCommand::Set(NetSetting::Ip(Ipv4Addr::new(10, 0, 2, 12)))
+        );
+        assert_eq!(parse_command("ZZ?"), AsciiCommand::Unknown);
+    }
+
+    /// This module's job for the matrix language is to recognise it and hand it over. The
+    /// grammar itself is tested in [`crate::wire::matrix`].
+    #[test]
+    fn hands_the_matrix_language_to_the_matrix_module() {
+        // A reply: `LINK:` dispatches to the routing parser.
+        let AsciiReply::Routing(routing) = parse_reply("LINK:O1I2;O2I1;END") else {
+            panic!("expected a routing report")
+        };
+        assert_eq!(routing.entries().len(), 2);
+
+        // A command: `MT00...NT` dispatches to the matrix command parser, and is checked
+        // before the network wrapper, which strips a different prefix.
+        assert_eq!(
+            parse_command("MT00SW0102NT"),
+            AsciiCommand::Matrix(MatrixCommand::Route {
+                input: crate::port::Port::FIRST,
+                output: crate::port::Port::new(2).unwrap(),
+            })
+        );
+
+        // Something that looks like the matrix language but is not stays unrecognised rather
+        // than falling through to the network parser.
+        assert_eq!(parse_reply("LINK:;END"), AsciiReply::Unknown);
+        assert_eq!(parse_command("MT00ZZ0000NT"), AsciiCommand::Unknown);
+    }
+}

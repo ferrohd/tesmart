@@ -381,3 +381,152 @@ fn earliest(left: Option<usize>, right: Option<usize>) -> Option<usize> {
         (found, None) | (None, found) => found,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chunks(data: &[u8]) -> std::vec::Vec<std::string::String> {
+        let mut decoder = StreamDecoder::<64>::new();
+        assert_eq!(decoder.feed(data), data.len());
+        let mut out = std::vec::Vec::new();
+        while let Some(chunk) = decoder.poll_chunk() {
+            out.push(std::format!("{chunk:?}"));
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_a_port_report() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(&[0xAA, 0xBB, 0x03, 0x11, 0x00, 0xEE]);
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::PortReport(Port::FIRST)));
+        assert_eq!(decoder.poll_chunk(), None);
+        assert_eq!(decoder.buffered(), 0);
+    }
+
+    #[test]
+    fn accepts_any_terminator() {
+        // 0x16 and 0x1C have been seen in place of 0xEE
+        for terminator in [0xEE, 0x16, 0x1C, 0x00] {
+            let mut decoder = StreamDecoder::<64>::new();
+            decoder.feed(&[0xAA, 0xBB, 0x03, 0x11, 0x01, terminator]);
+            assert_eq!(
+                decoder.poll_chunk(),
+                Some(Chunk::PortReport(Port::new(2).unwrap())),
+                "terminator 0x{terminator:02X}"
+            );
+        }
+    }
+
+    #[test]
+    fn reports_impossible_port_indexes_separately() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(&[0xAA, 0xBB, 0x03, 0x11, 0x10, 0xEE]);
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::BadPortReport { raw: 0x10 }));
+    }
+
+    #[test]
+    fn waits_for_the_rest_of_a_split_frame() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(&[0xAA, 0xBB, 0x03]);
+        assert_eq!(decoder.poll_chunk(), None);
+        decoder.feed(&[0x11, 0x02]);
+        assert_eq!(decoder.poll_chunk(), None);
+        decoder.feed(&[0xEE]);
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::PortReport(Port::new(3).unwrap())));
+    }
+
+    #[test]
+    fn a_lone_header_byte_is_never_text() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(&[0xAA]);
+        assert_eq!(decoder.poll_chunk(), None);
+        decoder.feed(&[0xBB, 0x03, 0x11, 0x00, 0xEE]);
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::PortReport(Port::FIRST)));
+    }
+
+    #[test]
+    fn resynchronises_past_a_corrupt_length_byte() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(&[0xAA, 0xBB, 0xFF, 0x11, 0x00, 0xEE, 0xAA, 0xBB, 0x03, 0x11, 0x03, 0xEE]);
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::Discarded(&[0xAA, 0xBB])));
+        // the bytes between are skipped as garbage, then the good frame is found
+        while let Some(chunk) = decoder.poll_chunk() {
+            if let Chunk::PortReport(port) = chunk {
+                assert_eq!(port.get(), 4);
+                return;
+            }
+        }
+        panic!("decoder lost the following frame");
+    }
+
+    #[test]
+    fn splits_ascii_on_its_terminator() {
+        assert_eq!(chunks(b"IP:010.000.002.012;"), ["Ascii(\"IP:010.000.002.012\")"]);
+        assert_eq!(chunks(b"OK"), ["Ascii(\"OK\")"]);
+        assert_eq!(chunks(b"PT:05000;OK;"), ["Ascii(\"PT:05000\")", "Ascii(\"OK\")"]);
+    }
+
+    #[test]
+    fn buffers_ascii_until_the_terminator_arrives() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(b"IP:010.000.002.012");
+        assert_eq!(decoder.poll_chunk(), None, "no terminator yet");
+        decoder.feed(b";");
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::Ascii("IP:010.000.002.012")));
+    }
+
+    #[test]
+    fn matrix_replies_terminate_on_end_not_the_first_semicolon() {
+        assert_eq!(chunks(b"LINK:O1I2;END"), ["Ascii(\"LINK:O1I2;END\")"]);
+    }
+
+    #[test]
+    fn device_mode_terminates_queries_on_the_question_mark() {
+        let mut decoder = StreamDecoder::<64>::with_mode(DecodeMode::Device);
+        decoder.feed(b"IP?PT?");
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::Ascii("IP?")));
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::Ascii("PT?")));
+
+        let mut decoder = StreamDecoder::<64>::with_mode(DecodeMode::Device);
+        decoder.feed(b"MT00SW0102NT");
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::Ascii("MT00SW0102NT")));
+    }
+
+    #[test]
+    fn text_followed_by_binary_is_discarded_not_buffered_forever() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(b"IP:10.0");
+        decoder.feed(&[0xAA, 0xBB, 0x03, 0x11, 0x00, 0xEE]);
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::Discarded(b"IP:10.0")));
+        assert_eq!(decoder.poll_chunk(), Some(Chunk::PortReport(Port::FIRST)));
+    }
+
+    #[test]
+    fn flush_recovers_unterminated_text_but_not_frames() {
+        let mut decoder = StreamDecoder::<64>::new();
+        decoder.feed(b"IP:10.0.2.12");
+        assert_eq!(decoder.poll_chunk(), None);
+        assert_eq!(decoder.flush_ascii(), Some("IP:10.0.2.12"));
+        assert_eq!(decoder.buffered(), 0);
+
+        decoder.feed(&[0xAA, 0xBB, 0x03]);
+        assert_eq!(decoder.flush_ascii(), None, "never eat a partial frame");
+
+        decoder.reset();
+        decoder.feed(&[0x00, 0x01, 0x02]);
+        assert_eq!(decoder.flush_ascii(), None, "unprintable bytes are not text");
+    }
+
+    #[test]
+    fn full_buffer_stops_accepting_rather_than_overwriting() {
+        let mut decoder = StreamDecoder::<8>::new();
+        assert_eq!(decoder.feed(&[0x01; 16]), 8);
+        assert_eq!(decoder.feed(&[0x01]), 0);
+        // nothing can be decoded out of garbage, so the caller must reset
+        assert_eq!(decoder.poll_chunk(), None);
+        decoder.reset();
+        assert_eq!(decoder.feed(&[0x01]), 1);
+    }
+}

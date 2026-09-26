@@ -106,3 +106,67 @@ pub enum Request {
     /// Documented for 8x8 and 16x16 matrices only.
     MatrixSavePreset(Preset),
 }
+
+impl Request {
+    /// The kind of request, without its argument.
+    pub const fn kind(self) -> RequestKind {
+        match self {
+            Self::Switch(_) => RequestKind::Switch,
+            Self::ReadActivePort => RequestKind::ReadActivePort,
+            Self::Buzzer(_) => RequestKind::Buzzer,
+            Self::DisplayTimeout(_) => RequestKind::DisplayTimeout,
+            Self::AutoInputDetect(_) => RequestKind::AutoInputDetect,
+            Self::StepOutput { .. } => RequestKind::StepOutput,
+            Self::MoveUsb => RequestKind::MoveUsb,
+            Self::KmPassthrough(_) => RequestKind::KmPassthrough,
+            Self::HotkeyTrigger(_) => RequestKind::HotkeyTrigger,
+            Self::AutoSwitch(_) => RequestKind::AutoSwitch,
+            Self::AutoSwitchInterval(_) => RequestKind::AutoSwitchInterval,
+            Self::NetQuery(_) => RequestKind::NetQuery,
+            Self::NetSet(_) => RequestKind::NetSet,
+            Self::MatrixRoute { .. } => RequestKind::MatrixRoute,
+            Self::MatrixRouteAll(_) => RequestKind::MatrixRouteAll,
+            Self::MatrixMirror => RequestKind::MatrixMirror,
+            Self::MatrixReadRouting => RequestKind::MatrixReadRouting,
+            Self::MatrixDisplayTimeout(_) => RequestKind::MatrixDisplayTimeout,
+            Self::MatrixBuzzer(_) => RequestKind::MatrixBuzzer,
+            Self::MatrixLoadPreset(_) => RequestKind::MatrixLoadPreset,
+            Self::MatrixSavePreset(_) => RequestKind::MatrixSavePreset,
+        }
+    }
+
+    /// What kind of reply, if any, this request is answered with.
+    pub const fn expects(self) -> Option<ResponseKind> {
+        self.kind().expects()
+    }
+}
+
+impl fmt::Display for Request {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Switch(port) => write!(f, "switch to port {port}"),
+            Self::ReadActivePort => f.write_str("read active port"),
+            Self::Buzzer(buzzer) | Self::MatrixBuzzer(buzzer) => write!(f, "set buzzer {buzzer}"),
+            Self::DisplayTimeout(timeout) => write!(f, "set display timeout {timeout}"),
+            Self::AutoInputDetect(state) => write!(f, "set auto input detect {state}"),
+            Self::StepOutput { output, step } => write!(f, "step output {output} {step}"),
+            Self::MoveUsb => f.write_str("move usb"),
+            Self::KmPassthrough(state) => write!(f, "set keyboard/mouse pass-through {state}"),
+            Self::HotkeyTrigger(key) => write!(f, "set hotkey trigger {key}"),
+            Self::AutoSwitch(state) => write!(f, "set auto-switch {state}"),
+            Self::AutoSwitchInterval(interval) => write!(f, "set auto-switch interval {interval}"),
+            Self::NetQuery(field) => write!(f, "read network {field}"),
+            Self::NetSet(setting) => write!(f, "set network {} to {setting}", setting.field()),
+            Self::MatrixRoute { input, output } => {
+                write!(f, "route input {input} to output {output}")
+            }
+            Self::MatrixRouteAll(input) => write!(f, "route input {input} to all outputs"),
+            Self::MatrixMirror => f.write_str("mirror inputs to outputs"),
+            Self::MatrixReadRouting => f.write_str("read routing"),
+            // A different type from DisplayTimeout: four digits of seconds, not three choices.
+            Self::MatrixDisplayTimeout(timeout) => write!(f, "set display timeout {timeout}"),
+            Self::MatrixLoadPreset(preset) => write!(f, "load preset {preset}"),
+            Self::MatrixSavePreset(preset) => write!(f, "save preset {preset}"),
+        }
+    }
+}

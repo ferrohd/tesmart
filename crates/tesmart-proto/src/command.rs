@@ -285,3 +285,63 @@ impl fmt::Display for RequestKind {
         f.write_str(self.name())
     }
 }
+
+/// Something the switch said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Response {
+    /// The request was handed to the transport and the protocol defines no reply to it.
+    ///
+    /// Not a confirmation: nothing came back, because nothing ever does for this command.
+    Accepted,
+
+    /// The active port, converted from the 0-based wire value.
+    ActivePort(Port),
+
+    /// One network setting, with zero padding stripped.
+    Net(NetSetting),
+
+    /// `OK`: a network write was accepted. Takes effect after a power cycle.
+    Ack,
+
+    /// A matrix routing report.
+    Routing(RoutingReply),
+
+    /// A frame that no profile interprets. Only produced for raw exchanges.
+    Frame(Frame),
+
+    /// Text that no profile interprets. Only produced for raw exchanges.
+    Text(WireBytes),
+}
+
+impl Response {
+    /// The kind of response, without its payload.
+    pub const fn kind(&self) -> ResponseKind {
+        match self {
+            Self::Accepted => ResponseKind::Accepted,
+            Self::ActivePort(_) => ResponseKind::ActivePort,
+            Self::Net(_) => ResponseKind::Net,
+            Self::Ack => ResponseKind::Ack,
+            Self::Routing(_) => ResponseKind::Routing,
+            Self::Frame(_) => ResponseKind::Frame,
+            Self::Text(_) => ResponseKind::Text,
+        }
+    }
+}
+
+impl fmt::Display for Response {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Accepted => f.write_str("accepted"),
+            Self::ActivePort(port) => write!(f, "port {port}"),
+            Self::Net(setting) => write!(f, "{} {setting}", setting.field()),
+            Self::Ack => f.write_str("ok"),
+            Self::Routing(_) => f.write_str("routing report"),
+            Self::Frame(frame) => write!(f, "frame 0x{:02X}", frame.opcode),
+            Self::Text(bytes) => match bytes.as_str() {
+                Some(text) => f.write_str(text),
+                None => write!(f, "{bytes:?}"),
+            },
+        }
+    }
+}

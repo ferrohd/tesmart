@@ -170,3 +170,118 @@ impl fmt::Display for Request {
         }
     }
 }
+
+/// A [`Request`] without its argument: what profiles and capabilities are keyed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum RequestKind {
+    /// [`Request::Switch`].
+    Switch,
+    /// [`Request::ReadActivePort`].
+    ReadActivePort,
+    /// [`Request::Buzzer`].
+    Buzzer,
+    /// [`Request::DisplayTimeout`].
+    DisplayTimeout,
+    /// [`Request::AutoInputDetect`].
+    AutoInputDetect,
+    /// [`Request::StepOutput`].
+    StepOutput,
+    /// [`Request::MoveUsb`].
+    MoveUsb,
+    /// [`Request::KmPassthrough`].
+    KmPassthrough,
+    /// [`Request::HotkeyTrigger`].
+    HotkeyTrigger,
+    /// [`Request::AutoSwitch`].
+    AutoSwitch,
+    /// [`Request::AutoSwitchInterval`].
+    AutoSwitchInterval,
+    /// [`Request::NetQuery`].
+    NetQuery,
+    /// [`Request::NetSet`].
+    NetSet,
+    /// [`Request::MatrixRoute`].
+    MatrixRoute,
+    /// [`Request::MatrixRouteAll`].
+    MatrixRouteAll,
+    /// [`Request::MatrixMirror`].
+    MatrixMirror,
+    /// [`Request::MatrixReadRouting`].
+    MatrixReadRouting,
+    /// [`Request::MatrixDisplayTimeout`].
+    MatrixDisplayTimeout,
+    /// [`Request::MatrixBuzzer`].
+    MatrixBuzzer,
+    /// [`Request::MatrixLoadPreset`].
+    MatrixLoadPreset,
+    /// [`Request::MatrixSavePreset`].
+    MatrixSavePreset,
+}
+
+impl RequestKind {
+    /// A stable, hyphenated name, suitable for CLI output and error messages.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Switch => "switch",
+            Self::ReadActivePort => "read-active-port",
+            Self::Buzzer => "buzzer",
+            Self::DisplayTimeout => "display-timeout",
+            Self::AutoInputDetect => "auto-input-detect",
+            Self::StepOutput => "step-output",
+            Self::MoveUsb => "move-usb",
+            Self::KmPassthrough => "km-passthrough",
+            Self::HotkeyTrigger => "hotkey-trigger",
+            Self::AutoSwitch => "auto-switch",
+            Self::AutoSwitchInterval => "auto-switch-interval",
+            Self::NetQuery => "net-query",
+            Self::NetSet => "net-set",
+            Self::MatrixRoute => "matrix-route",
+            Self::MatrixRouteAll => "matrix-route-all",
+            Self::MatrixMirror => "matrix-mirror",
+            Self::MatrixReadRouting => "matrix-read-routing",
+            Self::MatrixDisplayTimeout => "matrix-display-timeout",
+            Self::MatrixBuzzer => "matrix-buzzer",
+            Self::MatrixLoadPreset => "matrix-load-preset",
+            Self::MatrixSavePreset => "matrix-save-preset",
+        }
+    }
+
+    /// What kind of reply this request is answered with, if any.
+    ///
+    /// `None` means fire and forget: the switch sends nothing back, so the new state cannot be
+    /// confirmed. Every setting command is in that category.
+    pub const fn expects(self) -> Option<ResponseKind> {
+        match self {
+            Self::ReadActivePort => Some(ResponseKind::ActivePort),
+            Self::NetQuery => Some(ResponseKind::Net),
+            Self::NetSet => Some(ResponseKind::Ack),
+            Self::MatrixReadRouting => Some(ResponseKind::Routing),
+            _ => None,
+        }
+    }
+
+    /// Whether this request only reads state.
+    ///
+    /// Queries are the only requests the engine retransmits on a reply timeout: repeating a read
+    /// is harmless, repeating a write is not.
+    pub const fn is_query(self) -> bool {
+        matches!(self, Self::ReadActivePort | Self::NetQuery | Self::MatrixReadRouting)
+    }
+
+    /// Whether the switch can confirm the effect of this request.
+    ///
+    /// Buzzer, display timeout and auto-detect cannot be read back on any series, so a CLI must
+    /// report them as sent rather than applied.
+    pub const fn is_verifiable(self) -> bool {
+        self.expects().is_some()
+    }
+}
+
+impl fmt::Display for RequestKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}

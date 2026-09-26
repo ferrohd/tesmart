@@ -207,3 +207,91 @@ impl<const N: usize> StreamDecoder<N> {
         }
     }
 }
+
+/// What [`scan`] found, as offsets into the buffer.
+enum Decision {
+    NeedMore,
+    Port { port: Port, total: usize },
+    BadPort { raw: u8, total: usize },
+    Frame { frame: Frame, total: usize },
+    Ascii { text: Range<usize>, total: usize },
+    Discard { total: usize },
+}
+
+fn scan(data: &[u8], mode: DecodeMode) -> Decision {
+    if data.is_empty() {
+        return Decision::NeedMore;
+    }
+
+    let (header, partial) = find_header(data);
+    let boundary = header.or(partial).unwrap_or(data.len());
+
+    if boundary > 0 {
+        // Everything before a frame header is non-frame data. Only a *confirmed* header proves
+        // the text cannot be completed: a trailing lone 0xAA is still undecided, and discarding
+        // in front of it would make the output depend on where the stream was cut.
+        return scan_non_frame(&data[..boundary], mode, header.is_some());
+    }
+    if header.is_none() {
+        // A trailing lone 0xAA: it may become a header once the next byte arrives, so it is
+        // never treated as text.
+        return Decision::NeedMore;
+    }
+    scan_frame(data)
+}
+
+fn scan_frame(data: &[u8]) -> Decision {
+    // AA BB <len> <op> ...
+    if data.len() < 4 {
+        return Decision::NeedMore;
+    }
+
+    let len_byte = data[2];
+    if !(3..=MAX_LEN_BYTE).contains(&len_byte) {
+        // A corrupt length byte must not make us wait for bytes that will never come.
+        return Decision::Discard { total: HEADER.len() };
+    }
+
+    let total = 3 + len_byte as usize;
+    if data.len() < total {
+        return Decision::NeedMore;
+    }
+
+    // Byte `total - 1` is the terminator, and is deliberately not checked: 0x16 and 0x1C have
+    // both been seen in place of 0xEE.
+    let opcode = data[3];
+    let payload = match len_byte - 2 {
+        1 => Payload::One(data[4]),
+        2 => Payload::Two([data[4], data[5]]),
+        // Well framed but carrying more data than any known command: skip the whole frame
+        // rather than desynchronise.
+        _ => return Decision::Discard { total },
+    };
+
+    if opcode == OPCODE_PORT_REPORT && payload.len() == 1 {
+        return match Port::from_read_byte(data[4]) {
+            Ok(port) => Decision::Port { port, total },
+            Err(_) => Decision::BadPort { raw: data[4], total },
+        };
+    }
+
+    Decision::Frame { frame: Frame { opcode, payload }, total }
+}
+
+fn scan_non_frame(prefix: &[u8], mode: DecodeMode, frame_follows: bool) -> Decision {
+    if let Some(total) = ascii_unit_end(prefix, mode) {
+        let text = trim_text(prefix, total);
+        return if text.is_empty() || !is_printable(&prefix[text.clone()]) {
+            Decision::Discard { total }
+        } else {
+            Decision::Ascii { text, total }
+        };
+    }
+
+    if frame_follows {
+        // Binary follows, so this text can never be terminated.
+        Decision::Discard { total: prefix.len() }
+    } else {
+        Decision::NeedMore
+    }
+}

@@ -13,6 +13,29 @@
 //!
 //! Sources: `bbeaudoin/bash` packet captures, `pschmitt/tesmart.sh`, PiKVM `kvmd`.
 //!
+//! # Lending iterator
+//!
+//! [`StreamDecoder::poll_chunk`] borrows the decoder for as long as the returned [`Chunk`]
+//! lives, which is what makes ASCII chunks zero-copy. Consumption of the bytes is deferred to
+//! the next call, so the usual loop just works:
+//!
+//! ```
+//! use tesmart_proto::wire::{Chunk, StreamDecoder};
+//!
+//! let mut decoder: StreamDecoder = StreamDecoder::new();
+//! decoder.feed(b"OK;\xAA\xBB\x03\x11\x02\xEE");
+//!
+//! let mut chunks = 0;
+//! while let Some(chunk) = decoder.poll_chunk() {
+//!     match chunk {
+//!         Chunk::Ascii(text) => assert_eq!(text, "OK"),
+//!         Chunk::PortReport(port) => assert_eq!(port.get(), 3),
+//!         other => panic!("unexpected {other:?}"),
+//!     }
+//!     chunks += 1;
+//! }
+//! assert_eq!(chunks, 2);
+//! ```
 
 use core::ops::Range;
 
@@ -67,4 +90,120 @@ pub enum Chunk<'a> {
 
     /// Bytes that could not be part of anything valid and were dropped.
     Discarded(&'a [u8]),
+}
+
+/// Buffers a byte stream and hands out one [`Chunk`] at a time.
+#[derive(Debug, Clone)]
+pub struct StreamDecoder<const N: usize = DEFAULT_CAPACITY> {
+    buf: ByteBuf<N>,
+    pending_consume: usize,
+    mode: DecodeMode,
+}
+
+impl<const N: usize> Default for StreamDecoder<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> StreamDecoder<N> {
+    /// A decoder for the controller side of the link.
+    pub const fn new() -> Self {
+        Self { buf: ByteBuf::new(), pending_consume: 0, mode: DecodeMode::Host }
+    }
+
+    /// A decoder for the given side of the link.
+    pub const fn with_mode(mode: DecodeMode) -> Self {
+        Self { buf: ByteBuf::new(), pending_consume: 0, mode }
+    }
+
+    /// Which side of the link this decoder is on.
+    pub const fn mode(&self) -> DecodeMode {
+        self.mode
+    }
+
+    /// Buffers as much of `data` as fits and returns how many bytes were accepted.
+    ///
+    /// A return value below `data.len()` means the buffer is full: drain it with
+    /// [`poll_chunk`](Self::poll_chunk) and feed the rest. Zero with an empty drain means the
+    /// buffer holds nothing but garbage and should be [`reset`](Self::reset).
+    pub fn feed(&mut self, data: &[u8]) -> usize {
+        self.apply_pending();
+        self.buf.feed(data)
+    }
+
+    /// Pulls the next complete unit out of the buffer.
+    pub fn poll_chunk(&mut self) -> Option<Chunk<'_>> {
+        self.apply_pending();
+        match scan(self.buf.as_slice(), self.mode) {
+            Decision::NeedMore => None,
+            Decision::Port { port, total } => {
+                self.pending_consume = total;
+                Some(Chunk::PortReport(port))
+            }
+            Decision::BadPort { raw, total } => {
+                self.pending_consume = total;
+                Some(Chunk::BadPortReport { raw })
+            }
+            Decision::Frame { frame, total } => {
+                self.pending_consume = total;
+                Some(Chunk::Frame(frame))
+            }
+            Decision::Ascii { text, total } => {
+                self.pending_consume = total;
+                let buffered = self.buf.as_slice();
+                match core::str::from_utf8(&buffered[text]) {
+                    Ok(text) => Some(Chunk::Ascii(text)),
+                    // unreachable: `scan` only proposes printable ASCII
+                    Err(_) => Some(Chunk::Discarded(&buffered[..total])),
+                }
+            }
+            Decision::Discard { total } => {
+                self.pending_consume = total;
+                Some(Chunk::Discarded(&self.buf.as_slice()[..total]))
+            }
+        }
+    }
+
+    /// Gives up on finding a terminator and returns whatever printable text is buffered.
+    ///
+    /// The engine calls this when a reply deadline expires: an `OK` with no terminator, or a
+    /// reply truncated by a closing connection, is still worth something. Returns `None` if the
+    /// buffer is empty, holds frame data, or holds anything unprintable.
+    pub fn flush_ascii(&mut self) -> Option<&str> {
+        self.apply_pending();
+        let buffered = self.buf.as_slice();
+        if buffered.is_empty() || find_header(buffered).0.is_some() {
+            return None;
+        }
+        let text = trim_text(buffered, buffered.len());
+        if text.is_empty() || !is_printable(&buffered[text.clone()]) {
+            return None;
+        }
+        self.pending_consume = buffered.len();
+        core::str::from_utf8(&buffered[text]).ok()
+    }
+
+    /// How many bytes are waiting to be decoded.
+    pub const fn buffered(&self) -> usize {
+        self.buf.len() - self.pending_consume
+    }
+
+    /// The buffer size.
+    pub const fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Throws away everything buffered. Use after a reconnect, or to recover from garbage.
+    pub const fn reset(&mut self) {
+        self.buf.clear();
+        self.pending_consume = 0;
+    }
+
+    fn apply_pending(&mut self) {
+        if self.pending_consume > 0 {
+            self.buf.consume(self.pending_consume);
+            self.pending_consume = 0;
+        }
+    }
 }

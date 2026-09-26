@@ -5,6 +5,16 @@
 //! serial-to-Ethernet bridge, so both arrive as an unframed stream that may be split, padded
 //! with garbage, or interrupted by an unsolicited port report. [`StreamDecoder`] is the part
 //! that copes with that; the rest are pure codecs.
+//!
+//! | Module | Language |
+//! | --- | --- |
+//! | [`frame`] | the hex frames every KVM speaks |
+//! | [`ascii`] | the network side-channel, and dispatch between the two text languages |
+//! | [`matrix`] | the `MT00…NT` matrix commands and the `LINK:` routing report |
+//! | [`decode`] | telling all of them apart in a stream that arrives in pieces |
+//!
+//! `ascii` and `matrix` are separate because they are separate protocols: they share a
+//! transport and an encoding, and nothing else.
 
 pub mod ascii;
 pub mod decode;
@@ -16,6 +26,7 @@ use core::fmt;
 use core::ops::Deref;
 
 pub use crate::wire::ascii::{AsciiDialect, AsciiReply, AsciiScope, AsciiStyle};
+pub use crate::wire::decode::{Chunk, DecodeMode, StreamDecoder};
 pub use crate::wire::frame::{Frame, Payload};
 pub use crate::wire::matrix::{MatrixCommand, RoutingReply};
 

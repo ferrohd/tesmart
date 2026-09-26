@@ -295,3 +295,89 @@ fn scan_non_frame(prefix: &[u8], mode: DecodeMode, frame_follows: bool) -> Decis
         Decision::NeedMore
     }
 }
+
+/// Finds the first `AA BB`, or a trailing lone `AA` that might become one.
+fn find_header(data: &[u8]) -> (Option<usize>, Option<usize>) {
+    let mut index = 0;
+    while index < data.len() {
+        if data[index] == HEADER[0] {
+            match data.get(index + 1) {
+                Some(&second) if second == HEADER[1] => return (Some(index), None),
+                Some(_) => {}
+                None => return (None, Some(index)),
+            }
+        }
+        index += 1;
+    }
+    (None, None)
+}
+
+/// The end offset of the first complete ASCII unit, terminator included.
+fn ascii_unit_end(prefix: &[u8], mode: DecodeMode) -> Option<usize> {
+    // A matrix routing reply contains semicolons before its real terminator: `LINK:O1I1;END`.
+    if mode.is_host() && starts_with_text(prefix, b"LINK:") {
+        return find_sub(prefix, b"END").map(|at| at + 3);
+    }
+
+    let mut end = find_byte(prefix, b';').map(|at| at + 1);
+
+    if mode.is_device() {
+        end = earliest(end, find_byte(prefix, b'?').map(|at| at + 1));
+        end = earliest(end, find_sub(prefix, b"NT").map(|at| at + 2));
+    } else if end.is_none() && eq_ignore_case(trimmed(prefix), b"OK") {
+        // `OK` acknowledgements have been observed with no terminator at all.
+        end = Some(prefix.len());
+    }
+
+    end
+}
+
+/// The text inside `prefix[..end]`: terminator, whitespace and NULs removed.
+///
+/// `?`, `NT` and `END` are left in place, because they carry meaning for the parser.
+fn trim_text(prefix: &[u8], end: usize) -> Range<usize> {
+    let mut start = 0;
+    let mut stop = end.min(prefix.len());
+    while stop > start && matches!(prefix[stop - 1], b';' | b'\r' | b'\n' | b' ' | b'\t' | 0) {
+        stop -= 1;
+    }
+    while start < stop && matches!(prefix[start], b'\r' | b'\n' | b' ' | b'\t' | 0) {
+        start += 1;
+    }
+    start..stop
+}
+
+fn trimmed(data: &[u8]) -> &[u8] {
+    let range = trim_text(data, data.len());
+    &data[range]
+}
+
+fn is_printable(data: &[u8]) -> bool {
+    data.iter().all(|byte| (0x20..=0x7E).contains(byte))
+}
+
+fn starts_with_text(data: &[u8], prefix: &[u8]) -> bool {
+    trimmed(data).starts_with(prefix)
+}
+
+fn find_byte(data: &[u8], needle: u8) -> Option<usize> {
+    data.iter().position(|byte| *byte == needle)
+}
+
+fn find_sub(data: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.len() > data.len() {
+        return None;
+    }
+    data.windows(needle.len()).position(|window| window == needle)
+}
+
+fn eq_ignore_case(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len() && left.iter().zip(right).all(|(l, r)| l.eq_ignore_ascii_case(r))
+}
+
+fn earliest(left: Option<usize>, right: Option<usize>) -> Option<usize> {
+    match (left, right) {
+        (Some(l), Some(r)) => Some(l.min(r)),
+        (found, None) | (None, found) => found,
+    }
+}

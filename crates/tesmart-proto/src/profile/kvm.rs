@@ -105,3 +105,76 @@ static COMMANDS: &[CommandInfo] = &[
         "persists on OK but only takes effect after a power cycle; there is no factory reset",
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::port::Port;
+    use crate::value::{Buzzer, DisplayTimeout, NetField, NetSetting, Toggle};
+
+    fn encode(request: Request) -> std::vec::Vec<u8> {
+        Kvm.encode(request, AsciiStyle::DEFAULT)
+            .expect("supported by family A")
+            .bytes()
+            .as_slice()
+            .to_vec()
+    }
+
+    #[test]
+    fn encodes_the_documented_frames() {
+        assert_eq!(
+            encode(Request::Switch(Port::new(2).unwrap())),
+            [0xAA, 0xBB, 0x03, 0x01, 0x02, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::Switch(Port::new(16).unwrap())),
+            [0xAA, 0xBB, 0x03, 0x01, 0x10, 0xEE]
+        );
+        assert_eq!(encode(Request::ReadActivePort), [0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        assert_eq!(encode(Request::Buzzer(Buzzer::Muted)), [0xAA, 0xBB, 0x03, 0x02, 0x00, 0xEE]);
+        assert_eq!(encode(Request::Buzzer(Buzzer::Audible)), [0xAA, 0xBB, 0x03, 0x02, 0x01, 0xEE]);
+        assert_eq!(
+            encode(Request::DisplayTimeout(DisplayTimeout::Seconds10)),
+            [0xAA, 0xBB, 0x03, 0x03, 0x0A, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::DisplayTimeout(DisplayTimeout::Seconds30)),
+            [0xAA, 0xBB, 0x03, 0x03, 0x1E, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::DisplayTimeout(DisplayTimeout::Never)),
+            [0xAA, 0xBB, 0x03, 0x03, 0x00, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::AutoInputDetect(Toggle::On)),
+            [0xAA, 0xBB, 0x03, 0x81, 0x01, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::AutoInputDetect(Toggle::Off)),
+            [0xAA, 0xBB, 0x03, 0x81, 0x00, 0xEE]
+        );
+    }
+
+    #[test]
+    fn encodes_the_ascii_side_channel() {
+        assert_eq!(encode(Request::NetQuery(NetField::Ip)), b"IP?");
+        assert_eq!(encode(Request::NetQuery(NetField::Mask)), b"MA?");
+        assert_eq!(encode(Request::NetSet(NetSetting::Port(5000))), b"PT:5000;");
+    }
+
+    #[test]
+    fn decodes_port_reports_and_ascii_replies() {
+        assert_eq!(
+            Kvm.decode(&Chunk::PortReport(Port::new(3).unwrap())),
+            Some(Response::ActivePort(Port::new(3).unwrap()))
+        );
+        assert_eq!(Kvm.decode(&Chunk::Ascii("OK")), Some(Response::Ack));
+        assert_eq!(
+            Kvm.decode(&Chunk::Ascii("PT:05000")),
+            Some(Response::Net(NetSetting::Port(5000)))
+        );
+        assert_eq!(Kvm.decode(&Chunk::Ascii("garbage")), None);
+        assert_eq!(Kvm.decode(&Chunk::BadPortReport { raw: 0x40 }), None);
+        assert_eq!(Kvm.decode(&Chunk::Frame(Frame::one(0x42, 0x00))), None);
+    }
+}

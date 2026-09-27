@@ -345,3 +345,44 @@ impl fmt::Display for Response {
         }
     }
 }
+
+/// A [`Response`] without its payload: what an in-flight exchange is matched against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum ResponseKind {
+    /// [`Response::Accepted`].
+    Accepted,
+    /// [`Response::ActivePort`].
+    ActivePort,
+    /// [`Response::Net`].
+    Net,
+    /// [`Response::Ack`].
+    Ack,
+    /// [`Response::Routing`].
+    Routing,
+    /// [`Response::Frame`].
+    Frame,
+    /// [`Response::Text`].
+    Text,
+}
+
+impl ResponseKind {
+    /// A stable, hyphenated name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::ActivePort => "active-port",
+            Self::Net => "net",
+            Self::Ack => "ack",
+            Self::Routing => "routing",
+            Self::Frame => "frame",
+            Self::Text => "text",
+        }
+    }
+}
+
+impl fmt::Display for ResponseKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}

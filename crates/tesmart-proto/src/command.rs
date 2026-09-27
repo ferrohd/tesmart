@@ -386,3 +386,29 @@ impl fmt::Display for ResponseKind {
         f.write_str(self.name())
     }
 }
+
+/// One entry of a profile's command table, for introspection and help output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandInfo {
+    /// The request this entry describes.
+    pub kind: RequestKind,
+    /// The hex opcode, or `None` for ASCII commands.
+    pub opcode: Option<u8>,
+    /// A caveat worth printing next to the command, if any.
+    pub note: Option<&'static str>,
+}
+
+impl CommandInfo {
+    pub(crate) const fn frame(kind: RequestKind, opcode: u8) -> Self {
+        Self { kind, opcode: Some(opcode), note: None }
+    }
+
+    pub(crate) const fn ascii(kind: RequestKind) -> Self {
+        Self { kind, opcode: None, note: None }
+    }
+
+    pub(crate) const fn with_note(mut self, note: &'static str) -> Self {
+        self.note = Some(note);
+        self
+    }
+}

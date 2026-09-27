@@ -21,6 +21,8 @@
 //! families have decided what to do with it. Unknown models are handled by choosing the family
 //! that fits, not by writing a fifth profile.
 
+pub mod base;
+
 use core::fmt;
 use core::str::FromStr;
 

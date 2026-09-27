@@ -412,3 +412,67 @@ impl CommandInfo {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_reads_expect_replies() {
+        assert_eq!(Request::ReadActivePort.expects(), Some(ResponseKind::ActivePort));
+        assert_eq!(Request::NetQuery(NetField::Ip).expects(), Some(ResponseKind::Net));
+        assert_eq!(Request::NetSet(NetSetting::Port(5000)).expects(), Some(ResponseKind::Ack));
+
+        // write-only settings: the switch says nothing, so nothing can be verified
+        assert_eq!(Request::Buzzer(Buzzer::Muted).expects(), None);
+        assert_eq!(Request::Switch(Port::FIRST).expects(), None);
+        assert!(!RequestKind::DisplayTimeout.is_verifiable());
+        assert!(!RequestKind::Switch.is_verifiable());
+    }
+
+    #[test]
+    fn only_queries_are_safe_to_repeat() {
+        assert!(RequestKind::ReadActivePort.is_query());
+        assert!(RequestKind::NetQuery.is_query());
+        assert!(RequestKind::MatrixReadRouting.is_query());
+        assert!(!RequestKind::NetSet.is_query());
+        assert!(!RequestKind::Switch.is_query());
+    }
+
+    #[test]
+    fn kinds_round_trip_from_requests() {
+        let requests = [
+            Request::Switch(Port::FIRST),
+            Request::ReadActivePort,
+            Request::Buzzer(Buzzer::Audible),
+            Request::DisplayTimeout(DisplayTimeout::Never),
+            Request::AutoInputDetect(Toggle::On),
+            Request::StepOutput { output: Output::A, step: Step::Next },
+            Request::MoveUsb,
+            Request::KmPassthrough(Toggle::On),
+            Request::HotkeyTrigger(HotkeyTrigger::RightCtrl),
+            Request::AutoSwitch(Toggle::Off),
+            Request::AutoSwitchInterval(SwitchInterval::from_secs(10).unwrap()),
+            Request::NetQuery(NetField::Ip),
+            Request::NetSet(NetSetting::Port(5000)),
+            Request::MatrixRoute { input: Port::FIRST, output: Port::FIRST },
+            Request::MatrixRouteAll(Port::FIRST),
+            Request::MatrixMirror,
+            Request::MatrixReadRouting,
+            Request::MatrixDisplayTimeout(MatrixTimeout::NEVER),
+            Request::MatrixBuzzer(Buzzer::Muted),
+            Request::MatrixLoadPreset(Preset::FIRST),
+            Request::MatrixSavePreset(Preset::FIRST),
+        ];
+
+        // every variant has a distinct kind and a non-empty name
+        let mut kinds = std::collections::BTreeSet::new();
+        for request in requests {
+            let kind = request.kind();
+            assert!(kinds.insert(kind), "duplicate kind for {request}");
+            assert_ne!(kind.name(), "");
+            assert_ne!(std::format!("{request}"), "");
+        }
+        assert_eq!(kinds.len(), requests.len());
+    }
+}

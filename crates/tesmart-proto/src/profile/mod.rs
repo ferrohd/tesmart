@@ -135,3 +135,100 @@ impl FromStr for Family {
 pub struct UnknownFamily;
 
 impl sealed::Sealed for Family {}
+
+/// A request that has no meaning in the active family.
+///
+/// The [`Display`](fmt::Display) implementation explains what the opcode would have done
+/// instead, where the families clash.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unsupported {
+    /// The family that refused the request.
+    pub family: Family,
+    /// The request that was refused.
+    pub request: RequestKind,
+}
+
+impl Unsupported {
+    pub(crate) const fn new(family: Family, request: RequestKind) -> Self {
+        Self { family, request }
+    }
+
+    /// Why this combination is refused, when there is something interesting to say.
+    pub const fn note(self) -> Option<&'static str> {
+        clash_note(self.family, self.request)
+    }
+}
+
+impl fmt::Display for Unsupported {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} is not available on the {} profile", self.request, self.family)?;
+        match self.note() {
+            Some(note) => write!(f, ": {note}"),
+            None => Ok(()),
+        }
+    }
+}
+
+impl core::error::Error for Unsupported {}
+
+/// The interesting half of an [`Unsupported`] message.
+const fn clash_note(family: Family, request: RequestKind) -> Option<&'static str> {
+    match (family, request) {
+        (Family::KvmDual, RequestKind::DisplayTimeout) => Some(
+            "on dual-monitor switches opcode 0x03 steps output A's input instead of setting the \
+             display timeout",
+        ),
+        (Family::Kvm, RequestKind::StepOutput) => Some(
+            "on single-monitor switches opcode 0x03 sets the front display timeout; use switch \
+             to choose a port",
+        ),
+        (Family::Kvm, RequestKind::MoveUsb | RequestKind::KmPassthrough) => {
+            Some("this command only exists on dual-monitor switches")
+        }
+        (
+            Family::Kvm,
+            RequestKind::HotkeyTrigger | RequestKind::AutoSwitch | RequestKind::AutoSwitchInterval,
+        ) => Some("this command is only documented for dual-monitor switches"),
+        (Family::KvmDual, RequestKind::ReadActivePort) => {
+            Some("no read command is documented for dual-monitor switches")
+        }
+        (Family::KvmDual, RequestKind::NetQuery | RequestKind::NetSet) => {
+            Some("network configuration is not documented for dual-monitor switches")
+        }
+        (Family::KvmDual, RequestKind::AutoInputDetect) => {
+            Some("auto input detect is not documented for dual-monitor switches")
+        }
+        (Family::Matrix, RequestKind::Switch) => {
+            Some("matrices route an input to an output; use matrix-route")
+        }
+        (Family::Matrix, RequestKind::DisplayTimeout) => {
+            Some("matrices use their own display timeout command; use matrix-display-timeout")
+        }
+        (Family::Matrix, RequestKind::Buzzer) => {
+            Some("matrices use their own buzzer command, with inverted values; use matrix-buzzer")
+        }
+        (Family::Matrix, RequestKind::ReadActivePort) => {
+            Some("a matrix has no single active port; read its routing instead")
+        }
+        (Family::Matrix, _) => Some("matrices understand only the ASCII matrix commands"),
+        (Family::Sdi, RequestKind::ReadActivePort) => {
+            Some("the SDI switch does not report anything: it has no read command and never acks")
+        }
+        // Catches the matrix commands too: the SDI switch has one command, full stop.
+        (Family::Sdi, _) => {
+            Some("the SDI switch has exactly one command, AA CC 01 <port>; use switch")
+        }
+        (
+            Family::Kvm | Family::KvmDual,
+            RequestKind::MatrixRoute
+            | RequestKind::MatrixRouteAll
+            | RequestKind::MatrixMirror
+            | RequestKind::MatrixReadRouting
+            | RequestKind::MatrixDisplayTimeout
+            | RequestKind::MatrixBuzzer
+            | RequestKind::MatrixLoadPreset
+            | RequestKind::MatrixSavePreset,
+        ) => Some("matrix commands only work on HDMI matrices, not on switches"),
+        _ => None,
+    }
+}

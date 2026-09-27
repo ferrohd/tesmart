@@ -19,6 +19,7 @@ mod buf;
 
 pub mod command;
 pub mod port;
+pub mod profile;
 pub mod time;
 pub mod value;
 pub mod wire;

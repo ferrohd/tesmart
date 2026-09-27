@@ -22,9 +22,12 @@
 //! that fits, not by writing a fifth profile.
 
 pub mod base;
+pub mod kvm;
 
 use core::fmt;
 use core::str::FromStr;
+
+pub use crate::profile::kvm::Kvm;
 
 use crate::command::{CommandInfo, Request, RequestKind, Response};
 use crate::wire::{AsciiStyle, Chunk, Transmit};

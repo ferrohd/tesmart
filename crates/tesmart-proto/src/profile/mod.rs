@@ -22,6 +22,7 @@
 //! that fits, not by writing a fifth profile.
 
 use core::fmt;
+use core::str::FromStr;
 
 use crate::command::{CommandInfo, Request, RequestKind, Response};
 use crate::wire::{AsciiStyle, Chunk, Transmit};
@@ -58,3 +59,79 @@ pub trait Profile: Copy + sealed::Sealed {
         self.commands().iter().find(|entry| entry.kind == kind)
     }
 }
+
+/// A protocol family, chosen at run time.
+///
+/// Deliberately has no `Default`: the family must come from the model registry or from an
+/// explicit choice by the user. Guessing it from a model name is how you end up sending
+/// `0x03` to the wrong kind of switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum Family {
+    /// Family A: single-monitor KVMs. See [`Kvm`].
+    Kvm,
+    /// Family A': dual-monitor KVMs. See [`KvmDual`].
+    KvmDual,
+    /// Family B: HDMI matrices. See [`Matrix`].
+    Matrix,
+    /// Family C: the 4x1 SDI switch. See [`Sdi`].
+    Sdi,
+}
+
+impl Family {
+    /// Every family, in documentation order.
+    pub const ALL: [Self; 4] = [Self::Kvm, Self::KvmDual, Self::Matrix, Self::Sdi];
+
+    /// The name used on the command line and in configuration.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Kvm => "kvm",
+            Self::KvmDual => "kvm-dual",
+            Self::Matrix => "matrix",
+            Self::Sdi => "sdi",
+        }
+    }
+
+    /// Whether this family uses the `AA BB` hex frame codec.
+    ///
+    /// False for [`Family::Sdi`], which sends binary but not *that* binary: its four-byte
+    /// `AA CC 01 0n` commands are not frames this crate's codec can read or write, and it never
+    /// replies, so there is nothing to decode either.
+    pub const fn uses_frames(self) -> bool {
+        matches!(self, Self::Kvm | Self::KvmDual)
+    }
+
+    /// Whether a switch in this family can report anything at all.
+    ///
+    /// False for [`Family::Sdi`]: no read command, no acknowledgement, nothing. A driver can
+    /// use this to skip waiting for replies that are never coming.
+    pub const fn can_reply(self) -> bool {
+        !matches!(self, Self::Sdi)
+    }
+}
+
+impl fmt::Display for Family {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl FromStr for Family {
+    type Err = UnknownFamily;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        Self::ALL
+            .into_iter()
+            .find(|family| s.eq_ignore_ascii_case(family.name()))
+            .ok_or(UnknownFamily)
+    }
+}
+
+/// Text that does not name a protocol family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("expected one of kvm, kvm-dual, matrix, sdi")]
+pub struct UnknownFamily;
+
+impl sealed::Sealed for Family {}

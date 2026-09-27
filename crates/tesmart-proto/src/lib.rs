@@ -26,3 +26,4 @@ pub mod wire;
 
 pub use crate::command::{Request, RequestKind, Response, ResponseKind};
 pub use crate::port::{Port, PortCount};
+pub use crate::profile::{Family, Profile};

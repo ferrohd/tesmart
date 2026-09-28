@@ -145,3 +145,105 @@ static COMMANDS: &[CommandInfo] = &[
     CommandInfo::ascii(RequestKind::NetSet)
         .with_note("bare form over LAN, MT8019/MT8009 wrapped form over RS232"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::port::Port;
+    use crate::value::{Buzzer, MatrixTimeout, NetField, NetSetting, Preset};
+
+    fn encode_with(request: Request, style: AsciiStyle) -> std::string::String {
+        Matrix
+            .encode(request, style)
+            .expect("supported by family B")
+            .bytes()
+            .as_str()
+            .expect("ASCII")
+            .to_owned()
+    }
+
+    fn encode(request: Request) -> std::string::String {
+        encode_with(request, AsciiStyle::DEFAULT)
+    }
+
+    fn port(number: u8) -> Port {
+        Port::new(number).expect("a valid port")
+    }
+
+    #[test]
+    fn encodes_the_documented_strings() {
+        assert_eq!(
+            encode(Request::MatrixRoute { input: Port::FIRST, output: port(2) }),
+            "MT00SW0102NT"
+        );
+        assert_eq!(encode(Request::MatrixRouteAll(port(3))), "MT00SW0300NT");
+        assert_eq!(encode(Request::MatrixMirror), "MT00SW0000NT");
+        assert_eq!(encode(Request::MatrixReadRouting), "MT00RD0000NT");
+        assert_eq!(encode(Request::MatrixDisplayTimeout(MatrixTimeout::NEVER)), "MT00CT0000NT");
+        assert_eq!(
+            encode(Request::MatrixDisplayTimeout(MatrixTimeout::from_secs(30).unwrap())),
+            "MT00CT0030NT"
+        );
+        assert_eq!(
+            encode(Request::MatrixDisplayTimeout(MatrixTimeout::from_secs(9999).unwrap())),
+            "MT00CT9999NT"
+        );
+    }
+
+    /// A 16x16 matrix routes two-digit ports, so the field is not just the 4x4 case padded.
+    #[test]
+    fn encodes_the_widest_routing_command() {
+        assert_eq!(
+            encode(Request::MatrixRoute { input: port(16), output: port(16) }),
+            "MT00SW1616NT"
+        );
+        assert_eq!(encode(Request::MatrixRouteAll(port(16))), "MT00SW1600NT");
+    }
+
+    /// The buzzer is the one command where the matrix and KVM encodings disagree.
+    #[test]
+    fn the_matrix_buzzer_is_inverted_against_the_kvm_one() {
+        assert_eq!(encode(Request::MatrixBuzzer(Buzzer::Muted)), "MT00BZEN01NT");
+        assert_eq!(encode(Request::MatrixBuzzer(Buzzer::Audible)), "MT00BZEN00NT");
+
+        // Same value, opposite byte, on the KVM side.
+        assert_eq!(Buzzer::Muted.to_byte(), 0x00);
+        assert_eq!(Buzzer::Muted.to_matrix_field(), 1);
+    }
+
+    #[test]
+    fn encodes_presets_in_both_directions() {
+        assert_eq!(encode(Request::MatrixSavePreset(Preset::FIRST)), "MT00SV0001NT");
+        assert_eq!(encode(Request::MatrixLoadPreset(Preset::FIRST)), "MT00RD0101NT");
+        assert_eq!(encode(Request::MatrixSavePreset(Preset::new(8).unwrap())), "MT00SV0008NT");
+        assert_eq!(encode(Request::MatrixLoadPreset(Preset::new(8).unwrap())), "MT00RD0108NT");
+
+        // Reading the routing and loading preset 1 differ by one character.
+        assert_ne!(
+            encode(Request::MatrixReadRouting),
+            encode(Request::MatrixLoadPreset(Preset::FIRST))
+        );
+    }
+
+    #[test]
+    fn network_commands_follow_the_transport() {
+        let lan = AsciiStyle::DEFAULT;
+        let serial = AsciiStyle::DEFAULT.with_scope(AsciiScope::Serial);
+
+        assert_eq!(encode_with(Request::NetQuery(NetField::Ip), lan), "IP?");
+        assert_eq!(encode_with(Request::NetQuery(NetField::Ip), serial), "MT8003IP?");
+
+        let setting = NetSetting::Port(5000);
+        assert_eq!(encode_with(Request::NetSet(setting), lan), "PT:5000;");
+        assert_eq!(encode_with(Request::NetSet(setting), serial), "MT8009PT:05000;");
+    }
+
+    #[test]
+    fn decodes_routing_reports_only_from_ascii() {
+        let Some(Response::Routing(routing)) = Matrix.decode(&Chunk::Ascii("LINK:O1I2;END")) else {
+            panic!("expected a routing report")
+        };
+        assert_eq!(routing.entries().len(), 1);
+        assert_eq!(Matrix.decode(&Chunk::PortReport(Port::FIRST)), None);
+    }
+}

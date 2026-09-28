@@ -25,6 +25,7 @@ pub mod base;
 pub mod dual;
 pub mod kvm;
 pub mod matrix;
+pub mod sdi;
 
 use core::fmt;
 use core::str::FromStr;
@@ -32,6 +33,7 @@ use core::str::FromStr;
 pub use crate::profile::dual::KvmDual;
 pub use crate::profile::kvm::Kvm;
 pub use crate::profile::matrix::Matrix;
+pub use crate::profile::sdi::Sdi;
 
 use crate::command::{CommandInfo, Request, RequestKind, Response};
 use crate::wire::{AsciiStyle, Chunk, Transmit};

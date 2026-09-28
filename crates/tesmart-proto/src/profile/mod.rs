@@ -147,6 +147,40 @@ pub struct UnknownFamily;
 
 impl sealed::Sealed for Family {}
 
+/// Runtime dispatch over the four families.
+impl Profile for Family {
+    fn family(self) -> Family {
+        self
+    }
+
+    fn encode(self, request: Request, style: AsciiStyle) -> Result<Transmit, Unsupported> {
+        match self {
+            Self::Kvm => Kvm.encode(request, style),
+            Self::KvmDual => KvmDual.encode(request, style),
+            Self::Matrix => Matrix.encode(request, style),
+            Self::Sdi => Sdi.encode(request, style),
+        }
+    }
+
+    fn decode(self, chunk: &Chunk<'_>) -> Option<Response> {
+        match self {
+            Self::Kvm => Kvm.decode(chunk),
+            Self::KvmDual => KvmDual.decode(chunk),
+            Self::Matrix => Matrix.decode(chunk),
+            Self::Sdi => Sdi.decode(chunk),
+        }
+    }
+
+    fn commands(self) -> &'static [CommandInfo] {
+        match self {
+            Self::Kvm => Kvm.commands(),
+            Self::KvmDual => KvmDual.commands(),
+            Self::Matrix => Matrix.commands(),
+            Self::Sdi => Sdi.commands(),
+        }
+    }
+}
+
 /// A request that has no meaning in the active family.
 ///
 /// The [`Display`](fmt::Display) implementation explains what the opcode would have done

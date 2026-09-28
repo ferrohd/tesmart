@@ -88,3 +88,46 @@ fn switch(port: Port) -> Transmit {
 
 static COMMANDS: &[CommandInfo] = &[CommandInfo::frame(RequestKind::Switch, PREFIX[2])
     .with_note("AA CC 01 <port>, four bytes with no terminator; the switch acknowledges nothing")];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode(request: Request) -> std::vec::Vec<u8> {
+        Sdi.encode(request, AsciiStyle::DEFAULT)
+            .expect("supported by family C")
+            .bytes()
+            .as_slice()
+            .to_vec()
+    }
+
+    #[test]
+    fn encodes_the_four_documented_commands() {
+        for input in 1..=INPUTS {
+            let port = Port::new(input).unwrap();
+            assert_eq!(encode(Request::Switch(port)), std::vec![0xAA, 0xCC, 0x01, input]);
+        }
+    }
+
+    #[test]
+    fn the_frame_has_no_terminator() {
+        let bytes = encode(Request::Switch(Port::FIRST));
+        assert_eq!(bytes.len(), 4, "a KVM frame would be six bytes");
+        assert_ne!(bytes.last(), Some(&0xEE));
+    }
+
+    #[test]
+    fn nothing_else_is_in_the_family() {
+        let error = Sdi
+            .encode(Request::ReadActivePort, AsciiStyle::DEFAULT)
+            .expect_err("an SDI switch cannot be read");
+        assert_eq!(error.family, Family::Sdi);
+        assert!(std::format!("{error}").contains("does not report"), "{error}");
+    }
+
+    #[test]
+    fn it_never_interprets_anything() {
+        assert_eq!(Sdi.decode(&Chunk::PortReport(Port::FIRST)), None);
+        assert_eq!(Sdi.decode(&Chunk::Ascii("OK")), None);
+    }
+}

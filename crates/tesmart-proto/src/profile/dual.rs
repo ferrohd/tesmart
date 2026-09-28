@@ -128,3 +128,97 @@ static COMMANDS: &[CommandInfo] = &[
     CommandInfo::frame(RequestKind::AutoSwitchInterval, OPCODE_AUTO_SWITCH_INTERVAL)
         .with_note("seven-byte frame with len = 0x04; the MM SS reading of the two data bytes is inferred, not documented"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::port::Port;
+    use crate::value::{Buzzer, HotkeyTrigger, NetField, Step, SwitchInterval, Toggle};
+
+    fn encode(request: Request) -> std::vec::Vec<u8> {
+        KvmDual
+            .encode(request, AsciiStyle::DEFAULT)
+            .expect("supported by family A'")
+            .bytes()
+            .as_slice()
+            .to_vec()
+    }
+
+    #[test]
+    fn shares_the_base_commands_with_family_a() {
+        assert_eq!(
+            encode(Request::Switch(Port::new(3).unwrap())),
+            [0xAA, 0xBB, 0x03, 0x01, 0x03, 0xEE]
+        );
+        assert_eq!(encode(Request::Buzzer(Buzzer::Audible)), [0xAA, 0xBB, 0x03, 0x02, 0x01, 0xEE]);
+    }
+
+    #[test]
+    fn encodes_the_community_documented_frames() {
+        assert_eq!(
+            encode(Request::StepOutput { output: Output::A, step: Step::Next }),
+            [0xAA, 0xBB, 0x03, 0x03, 0x01, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::StepOutput { output: Output::A, step: Step::Previous }),
+            [0xAA, 0xBB, 0x03, 0x03, 0x00, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::StepOutput { output: Output::B, step: Step::Next }),
+            [0xAA, 0xBB, 0x03, 0x04, 0x01, 0xEE]
+        );
+        assert_eq!(encode(Request::MoveUsb), [0xAA, 0xBB, 0x03, 0x05, 0x01, 0xEE]);
+        assert_eq!(
+            encode(Request::HotkeyTrigger(HotkeyTrigger::RightCtrl)),
+            [0xAA, 0xBB, 0x03, 0x07, 0x01, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::HotkeyTrigger(HotkeyTrigger::ScrollLock)),
+            [0xAA, 0xBB, 0x03, 0x07, 0x00, 0xEE]
+        );
+        assert_eq!(encode(Request::AutoSwitch(Toggle::On)), [0xAA, 0xBB, 0x03, 0x08, 0x01, 0xEE]);
+    }
+
+    #[test]
+    fn keyboard_mouse_pass_through_is_inverted() {
+        assert_eq!(
+            encode(Request::KmPassthrough(Toggle::On)),
+            [0xAA, 0xBB, 0x03, 0x06, 0x00, 0xEE]
+        );
+        assert_eq!(
+            encode(Request::KmPassthrough(Toggle::Off)),
+            [0xAA, 0xBB, 0x03, 0x06, 0x01, 0xEE]
+        );
+    }
+
+    #[test]
+    fn the_interval_command_is_the_only_seven_byte_frame() {
+        let interval = SwitchInterval::from_secs(5).unwrap();
+        assert_eq!(
+            encode(Request::AutoSwitchInterval(interval)),
+            [0xAA, 0xBB, 0x04, 0x09, 0x00, 0x05, 0xEE]
+        );
+
+        let long = SwitchInterval::from_raw(0x38, 0x38).unwrap();
+        assert_eq!(
+            encode(Request::AutoSwitchInterval(long)),
+            [0xAA, 0xBB, 0x04, 0x09, 0x38, 0x38, 0xEE]
+        );
+    }
+
+    #[test]
+    fn refuses_single_monitor_and_matrix_commands() {
+        for request in [
+            Request::ReadActivePort,
+            Request::AutoInputDetect(Toggle::On),
+            Request::NetQuery(NetField::Ip),
+            Request::MatrixMirror,
+        ] {
+            let error = KvmDual
+                .encode(request, AsciiStyle::DEFAULT)
+                .expect_err("not a dual-monitor command");
+            assert_eq!(error.family, Family::KvmDual);
+            assert_eq!(error.request, request.kind());
+        }
+    }
+}

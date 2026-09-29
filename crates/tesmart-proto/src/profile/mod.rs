@@ -277,3 +277,102 @@ const fn clash_note(family: Family, request: RequestKind) -> Option<&'static str
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::port::Port;
+    use crate::value::{DisplayTimeout, Output, Step};
+
+    #[test]
+    fn families_parse_and_print() {
+        assert_eq!("kvm".parse(), Ok(Family::Kvm));
+        assert_eq!("KVM-DUAL".parse(), Ok(Family::KvmDual));
+        assert_eq!(" matrix ".parse(), Ok(Family::Matrix));
+        assert_eq!("sdi".parse(), Ok(Family::Sdi));
+        assert_eq!("hdmi".parse::<Family>(), Err(UnknownFamily));
+        assert_eq!(std::format!("{}", Family::KvmDual), "kvm-dual");
+
+        // every family round-trips through its own name
+        for family in Family::ALL {
+            assert_eq!(family.name().parse(), Ok(family));
+        }
+    }
+
+    #[test]
+    fn only_the_sdi_family_is_write_only() {
+        assert!(Family::Kvm.can_reply());
+        assert!(Family::Matrix.can_reply());
+        assert!(!Family::Sdi.can_reply());
+        assert!(!Family::Sdi.uses_frames(), "AA CC is not the AA BB codec");
+    }
+
+    #[test]
+    fn the_0x03_clash_is_explained_in_both_directions() {
+        let dual = Kvm
+            .encode(
+                Request::StepOutput { output: Output::A, step: Step::Next },
+                AsciiStyle::DEFAULT,
+            )
+            .expect_err("stepping an output is a dual-monitor command");
+        let message = std::format!("{dual}");
+        assert!(message.contains("step-output is not available on the kvm profile"), "{message}");
+        assert!(message.contains("0x03 sets the front display timeout"), "{message}");
+
+        let single = KvmDual
+            .encode(Request::DisplayTimeout(DisplayTimeout::Never), AsciiStyle::DEFAULT)
+            .expect_err("display timeout is a single-monitor command");
+        let message = std::format!("{single}");
+        assert!(message.contains("0x03 steps output A's input"), "{message}");
+    }
+
+    #[test]
+    fn matrix_refuses_kvm_commands_with_a_hint() {
+        let error = Matrix
+            .encode(Request::Switch(Port::FIRST), AsciiStyle::DEFAULT)
+            .expect_err("matrices have no switch opcode");
+        assert!(std::format!("{error}").contains("use matrix-route"));
+
+        let buzzer = Matrix
+            .encode(Request::Buzzer(crate::value::Buzzer::Muted), AsciiStyle::DEFAULT)
+            .expect_err("the matrix buzzer command is a different string");
+        assert!(std::format!("{buzzer}").contains("inverted values"), "{buzzer}");
+    }
+
+    #[test]
+    fn runtime_dispatch_matches_the_static_profiles() {
+        let request = Request::Switch(Port::new(2).unwrap());
+        for (family, expected) in [
+            (Family::Kvm, Kvm.encode(request, AsciiStyle::DEFAULT)),
+            (Family::KvmDual, KvmDual.encode(request, AsciiStyle::DEFAULT)),
+            (Family::Sdi, Sdi.encode(request, AsciiStyle::DEFAULT)),
+        ] {
+            assert_eq!(
+                family.encode(request, AsciiStyle::DEFAULT).map(|t| t.bytes()),
+                expected.map(|t| t.bytes())
+            );
+        }
+        assert_eq!(Family::Kvm.family(), Family::Kvm);
+        assert!(Family::Kvm.uses_frames());
+        assert!(!Family::Matrix.uses_frames());
+    }
+
+    #[test]
+    fn support_is_driven_by_the_command_table() {
+        assert!(Family::Kvm.supports(RequestKind::ReadActivePort));
+        assert!(!Family::KvmDual.supports(RequestKind::ReadActivePort));
+        assert!(Family::KvmDual.supports(RequestKind::AutoSwitchInterval));
+        assert!(!Family::Matrix.supports(RequestKind::Switch));
+        assert!(Family::Sdi.supports(RequestKind::Switch));
+        assert!(!Family::Sdi.supports(RequestKind::ReadActivePort));
+        assert!(Family::Matrix.supports(RequestKind::MatrixBuzzer));
+        assert!(!Family::Kvm.supports(RequestKind::MatrixBuzzer));
+
+        // every table entry must be encodable, and nothing outside it may be
+        for family in Family::ALL {
+            for entry in family.commands() {
+                assert!(family.supports(entry.kind), "{family} {}", entry.kind);
+            }
+        }
+    }
+}

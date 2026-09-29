@@ -75,3 +75,67 @@ impl fmt::Display for Support {
         f.write_str(self.name())
     }
 }
+
+/// What a model can do, with the provenance of each claim.
+///
+/// The fields are the commands that vary *within* a family. Everything else is covered by
+/// [`Self::baseline`], because the family already decides whether it exists at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Capabilities {
+    /// Provenance of every command this struct does not track individually, switching included.
+    pub baseline: Support,
+    /// Reading the active port (`0x10` / `0x11`).
+    pub read_port: Support,
+    /// Muting the buzzer (`0x02` on a KVM, `MT00BZEN` on a matrix).
+    pub buzzer: Support,
+    /// Setting the display timeout (`0x03` on a KVM, `MT00CT` on a matrix).
+    pub display_timeout: Support,
+    /// Automatic input detection (`0x81`).
+    pub auto_detect: Support,
+    /// Saving and loading matrix routing presets (`MT00SV` / `MT00RD01`).
+    pub presets: Support,
+    /// The ASCII network side-channel.
+    pub net_config: Support,
+}
+
+impl Capabilities {
+    /// Everything unknown: the right starting point for a model nobody has tested.
+    pub const UNVERIFIED: Self = Self {
+        baseline: Support::Unverified,
+        read_port: Support::Unverified,
+        buzzer: Support::Unverified,
+        display_timeout: Support::Unverified,
+        auto_detect: Support::Unverified,
+        presets: Support::Unverified,
+        net_config: Support::Unverified,
+    };
+
+    /// Nothing at all: the starting point for building up a model that has few commands.
+    pub const NONE: Self = Self {
+        baseline: Support::Unsupported,
+        read_port: Support::Unsupported,
+        buzzer: Support::Unsupported,
+        display_timeout: Support::Unsupported,
+        auto_detect: Support::Unsupported,
+        presets: Support::Unsupported,
+        net_config: Support::Unsupported,
+    };
+
+    /// What is known about one kind of request.
+    ///
+    /// One field can back more than one request, because the families spell the same idea
+    /// differently: a KVM's `0x03` and a matrix's `MT00CT` are both `display_timeout`. No model
+    /// has both, so sharing the field cannot lose information.
+    pub const fn support(self, kind: RequestKind) -> Support {
+        match kind {
+            RequestKind::ReadActivePort => self.read_port,
+            RequestKind::Buzzer | RequestKind::MatrixBuzzer => self.buzzer,
+            RequestKind::DisplayTimeout | RequestKind::MatrixDisplayTimeout => self.display_timeout,
+            RequestKind::AutoInputDetect => self.auto_detect,
+            RequestKind::MatrixLoadPreset | RequestKind::MatrixSavePreset => self.presets,
+            RequestKind::NetQuery | RequestKind::NetSet => self.net_config,
+            _ => self.baseline,
+        }
+    }
+}

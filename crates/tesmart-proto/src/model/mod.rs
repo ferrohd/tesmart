@@ -201,3 +201,62 @@ impl fmt::Display for ModelInfo {
 pub fn lookup(name: &str) -> Option<&'static ModelInfo> {
     MODELS.iter().find(|model| model.matches(name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn support_levels_say_what_may_be_relied_on() {
+        // Only evidence counts as available; a guess is worth trying but not trusting.
+        assert!(Support::Documented.is_available());
+        assert!(Support::FieldTested.is_available());
+        assert!(!Support::Unverified.is_available());
+        assert!(!Support::Unsupported.is_available());
+
+        assert!(Support::Unverified.is_worth_trying());
+        assert!(!Support::Unsupported.is_worth_trying());
+
+        for support in
+            [Support::Documented, Support::FieldTested, Support::Unverified, Support::Unsupported]
+        {
+            assert_ne!(support.name(), "");
+            assert_ne!(support.describe(), "");
+            assert_eq!(std::format!("{support}"), support.name());
+        }
+    }
+
+    /// One capability field backs both families' spelling of the same idea.
+    #[test]
+    fn capability_fields_cover_both_spellings() {
+        let caps = Capabilities { buzzer: Support::Documented, ..Capabilities::NONE };
+        assert_eq!(caps.support(RequestKind::Buzzer), Support::Documented);
+        assert_eq!(caps.support(RequestKind::MatrixBuzzer), Support::Documented);
+
+        let caps = Capabilities { display_timeout: Support::FieldTested, ..Capabilities::NONE };
+        assert_eq!(caps.support(RequestKind::DisplayTimeout), Support::FieldTested);
+        assert_eq!(caps.support(RequestKind::MatrixDisplayTimeout), Support::FieldTested);
+
+        let caps = Capabilities { presets: Support::Documented, ..Capabilities::NONE };
+        assert_eq!(caps.support(RequestKind::MatrixSavePreset), Support::Documented);
+        assert_eq!(caps.support(RequestKind::MatrixLoadPreset), Support::Documented);
+    }
+
+    #[test]
+    fn anything_untracked_falls_back_to_the_baseline() {
+        let caps = Capabilities { baseline: Support::Documented, ..Capabilities::NONE };
+        assert_eq!(caps.support(RequestKind::Switch), Support::Documented);
+        assert_eq!(caps.support(RequestKind::MatrixRoute), Support::Documented);
+        assert_eq!(caps.support(RequestKind::StepOutput), Support::Documented);
+        // but a tracked field is not the baseline
+        assert_eq!(caps.support(RequestKind::ReadActivePort), Support::Unsupported);
+    }
+
+    #[test]
+    fn the_two_starting_points_are_what_they_claim() {
+        for kind in [RequestKind::Switch, RequestKind::ReadActivePort, RequestKind::NetQuery] {
+            assert_eq!(Capabilities::UNVERIFIED.support(kind), Support::Unverified);
+            assert_eq!(Capabilities::NONE.support(kind), Support::Unsupported);
+        }
+    }
+}

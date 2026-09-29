@@ -139,3 +139,65 @@ impl Capabilities {
         }
     }
 }
+
+/// One entry of the registry.
+///
+/// Fields are public so a caller can take a registry entry and override what it has tested on
+/// its own hardware, without the registry having to model configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelInfo {
+    /// The canonical model name, as TESmart prints it.
+    pub key: &'static str,
+    /// Other names that resolve to this entry.
+    pub aliases: &'static [&'static str],
+    /// Which protocol family the model speaks.
+    pub family: Family,
+    /// How many inputs it has.
+    pub ports: PortCount,
+    /// How many outputs it has.
+    ///
+    /// One for a single-monitor KVM, two for a dual-monitor one, and the output count for a
+    /// matrix. A matrix needs this to range-check a routing command, which is the only reason
+    /// it is tracked at all.
+    pub outputs: PortCount,
+    /// What is known to work.
+    pub caps: Capabilities,
+    /// Anything a user should know before trusting the entry.
+    pub notes: &'static str,
+}
+
+impl ModelInfo {
+    /// Whether the model both speaks and is believed to implement a kind of request.
+    pub fn supports(&self, kind: RequestKind) -> bool {
+        self.family.supports(kind) && self.caps.support(kind).is_available()
+    }
+
+    /// What is known about a kind of request, taking the family into account.
+    ///
+    /// A command the family does not have at all is [`Support::Unsupported`], whatever the
+    /// capability flags say.
+    pub fn support(&self, kind: RequestKind) -> Support {
+        if self.family.supports(kind) { self.caps.support(kind) } else { Support::Unsupported }
+    }
+
+    /// Whether `name` refers to this model, ignoring case.
+    pub fn matches(&self, name: &str) -> bool {
+        let name = name.trim();
+        name.eq_ignore_ascii_case(self.key)
+            || self.aliases.iter().any(|alias| name.eq_ignore_ascii_case(alias))
+    }
+}
+
+impl fmt::Display for ModelInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.family == Family::Matrix {
+            return write!(f, "{} ({}, {}x{})", self.key, self.family, self.ports, self.outputs);
+        }
+        write!(f, "{} ({}, {} ports)", self.key, self.family, self.ports)
+    }
+}
+
+/// Finds a model by name or alias, ignoring case.
+pub fn lookup(name: &str) -> Option<&'static ModelInfo> {
+    MODELS.iter().find(|model| model.matches(name))
+}

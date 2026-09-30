@@ -259,4 +259,58 @@ pub static MODELS: &[ModelInfo] = &[
         caps: archetype::KVM_P23,
         notes: "As HKS801-P23, with 16 inputs.",
     },
+    // ---- Family A, no published protocol ------------------------------------------------------
+    ModelInfo {
+        key: "HKS801-M24",
+        aliases: &["m24-8"],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: Capabilities::UNVERIFIED,
+        notes: "No protocol document could be found for the M24 series. Family A is a guess based \
+                on the product line; everything is unverified.",
+    },
+    ModelInfo {
+        key: "HKS401-M24",
+        aliases: &["m24-4"],
+        family: Family::Kvm,
+        ports: PortCount::known(4),
+        outputs: PortCount::known(1),
+        caps: Capabilities::UNVERIFIED,
+        notes: "No protocol document could be found for the M24 series. Family A is a guess based \
+                on the product line; everything is unverified.",
+    },
+    ModelInfo {
+        key: "DKS203-M24",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(2),
+        outputs: PortCount::known(1),
+        caps: Capabilities::UNVERIFIED,
+        notes: "Reported in use by community tooling (EatMoTacos/tesmart-kvm-pico-deck) but \
+                absent from TESmart's protocol index. Family A and the port count are guesses \
+                from the model number; everything is unverified.",
+    },
+    ModelInfo {
+        key: "HKS801-L23",
+        aliases: &["l23-8"],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: Capabilities::UNVERIFIED,
+        notes: "Named in community reports; no protocol document is published for the L23 \
+                series. Family A is a guess based on the product line.",
+    },
+    ModelInfo {
+        key: "PKS0402A20",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(4),
+        outputs: PortCount::known(2),
+        caps: Capabilities::UNVERIFIED,
+        notes: "A 4-port dual-monitor model named in a community firmware backup \
+                (francoisjacques). Whether it speaks family A or the dual-monitor variant is \
+                untested, so the safer single-monitor family is assumed; everything is \
+                unverified.",
+    },
 ];

@@ -14,11 +14,15 @@
 //! table is long and changes for a different reason: adding a model should not touch the code
 //! that decides what a capability means.
 
+pub mod registry;
+
 use core::fmt;
 
 use crate::command::RequestKind;
 use crate::port::PortCount;
 use crate::profile::{Family, Profile};
+
+pub use crate::model::registry::MODELS;
 
 /// How well established a capability is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -313,4 +313,15 @@ pub static MODELS: &[ModelInfo] = &[
                 untested, so the safer single-monitor family is assumed; everything is \
                 unverified.",
     },
+    // ---- Family A', dual monitor --------------------------------------------------------------
+    ModelInfo {
+        key: "dual-4port",
+        aliases: &["kvm-dual-4", "4x2-dual"],
+        family: Family::KvmDual,
+        ports: PortCount::known(4),
+        outputs: PortCount::known(2),
+        caps: archetype::KVM_DUAL,
+        notes: "4-port dual-monitor HDMI/USB-C switch, community documented over RS232 only \
+                (spuder/Tesmart-KVM). No read command exists, so nothing can be verified.",
+    },
 ];

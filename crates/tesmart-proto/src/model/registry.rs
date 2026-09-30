@@ -102,3 +102,120 @@ mod archetype {
     /// The SDI switch: one command.
     pub(super) const SDI: Capabilities = Capabilities { baseline: DOC, ..Capabilities::NONE };
 }
+
+/// Every model this crate knows about.
+///
+/// Transcribed from `docs/protocol-reference.md`, which in turn cites the TESmart protocol PDFs
+/// and the community tools that tested the undocumented parts. The model-to-document mapping
+/// comes from TESmart's own index, "LAN RS232 Control Protocols", updated 2024-01-10.
+pub static MODELS: &[ModelInfo] = &[
+    // ---- Family A, single monitor ------------------------------------------------------------
+    ModelInfo {
+        key: "DKS0401A30",
+        aliases: &["4x1-dvi"],
+        family: Family::Kvm,
+        ports: PortCount::known(4),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_SWITCH_ONLY,
+        notes: "The 4x1 DVI protocol PDF lists only the four switch commands: no read, no settings.",
+    },
+    ModelInfo {
+        key: "HKS0801A20",
+        aliases: &["8x1-v1"],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_SWITCH_READ,
+        notes: "First generation 8x1: switch and read active port only.",
+    },
+    ModelInfo {
+        key: "HKS0801A30",
+        aliases: &["8x1-v2"],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_FULL,
+        notes: "",
+    },
+    ModelInfo {
+        key: "HKS0801A40",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_FULL,
+        notes: "",
+    },
+    ModelInfo {
+        key: "HKS0801A1U",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_FULL,
+        notes: "",
+    },
+    ModelInfo {
+        key: "HSW0801A10",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_FULL,
+        notes: "HDMI switch without KVM, same protocol as the 8x1 v2 KVMs.",
+    },
+    ModelInfo {
+        key: "HSW0801A1U",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_FULL,
+        notes: "HDMI switch without KVM, same protocol as the 8x1 v2 KVMs.",
+    },
+    ModelInfo {
+        key: "HKE0802A10",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_FULL,
+        notes: "",
+    },
+    ModelInfo {
+        key: "HKS1601A10",
+        aliases: &["16x1"],
+        family: Family::Kvm,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_16X1,
+        notes: "Auto input detect is absent from the 16x1 PDF but sent by working community tools.",
+    },
+    ModelInfo {
+        key: "HKS1601A1U",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_16X1,
+        notes: "Auto input detect is absent from the 16x1 PDF but sent by working community tools.",
+    },
+    ModelInfo {
+        key: "HSW1601A10",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_16X1,
+        notes: "HDMI switch without KVM, same protocol as the 16x1 KVMs.",
+    },
+    ModelInfo {
+        key: "HSW1601A1U",
+        aliases: &[],
+        family: Family::Kvm,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_16X1,
+        notes: "HDMI switch without KVM, same protocol as the 16x1 KVMs.",
+    },
+];

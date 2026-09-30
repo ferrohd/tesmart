@@ -419,4 +419,74 @@ pub static MODELS: &[ModelInfo] = &[
         notes: "HDMI matrix with extenders, covered by the 4x4 (RS232+IP) document, which \
                 addresses inputs and outputs as 01~04 regardless of the model number.",
     },
+    // ---- Family B, 8x8 matrices ---------------------------------------------------------------
+    ModelInfo {
+        key: "HMA0808A10",
+        aliases: &["8x8-matrix"],
+        family: Family::Matrix,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(8),
+        caps: archetype::MATRIX_LARGE,
+        notes: "8x8 HDMI matrix: routing, eight presets and a buzzer, but no display timeout.",
+    },
+    ModelInfo {
+        key: "HMA0808A20",
+        aliases: &[],
+        family: Family::Matrix,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(8),
+        caps: archetype::MATRIX_LARGE,
+        notes: "8x8 HDMI matrix: routing, eight presets and a buzzer, but no display timeout.",
+    },
+    ModelInfo {
+        key: "HMA0808A30",
+        aliases: &[],
+        family: Family::Matrix,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(8),
+        caps: archetype::MATRIX_LARGE,
+        notes: "8x8 HDMI matrix: routing, eight presets and a buzzer, but no display timeout.",
+    },
+    ModelInfo {
+        key: "HMA0808A1U",
+        aliases: &[],
+        family: Family::Matrix,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(8),
+        caps: archetype::MATRIX_LARGE,
+        notes: "8x8 HDMI matrix: routing, eight presets and a buzzer, but no display timeout.",
+    },
+    // ---- Family B, 16x16 matrices -------------------------------------------------------------
+    ModelInfo {
+        key: "HMA1616A10",
+        aliases: &["16x16-matrix"],
+        family: Family::Matrix,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(16),
+        caps: archetype::MATRIX_LARGE,
+        notes: "16x16 HDMI matrix. Its LINK report writes ports above 9 as A-G, so output 16 \
+                arrives as G, and a full report is 88 bytes.",
+    },
+    ModelInfo {
+        key: "HMA1616A20",
+        aliases: &[],
+        family: Family::Matrix,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(16),
+        caps: archetype::MATRIX_LARGE,
+        notes: "16x16 HDMI matrix. Its LINK report writes ports above 9 as A-G, so output 16 \
+                arrives as G, and a full report is 88 bytes.",
+    },
+    // ---- Family C, the SDI switch -------------------------------------------------------------
+    ModelInfo {
+        key: "SSW04010A10",
+        aliases: &["SSW0401A10", "4x1-sdi"],
+        family: Family::Sdi,
+        ports: PortCount::known(4),
+        outputs: PortCount::known(1),
+        caps: archetype::SDI,
+        notes: "4x1 SDI switch. One command, AA CC 01 <port>, four bytes with no terminator; it \
+                answers nothing. TESmart's index spells it SSW04010A10 and the document itself \
+                SSW0401A10, so both resolve here.",
+    },
 ];

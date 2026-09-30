@@ -218,4 +218,45 @@ pub static MODELS: &[ModelInfo] = &[
         caps: archetype::KVM_16X1,
         notes: "HDMI switch without KVM, same protocol as the 16x1 KVMs.",
     },
+    // ---- Family A, EB23 and P23 series --------------------------------------------------------
+    ModelInfo {
+        key: "HKS801-EB23",
+        aliases: &["eb23-8"],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_EB23,
+        notes: "4K30 with USB 2.0. The manual lists only 0x01, 0x02, 0x03 and 0x81, but reading \
+                the active port and the ASCII network commands both work in practice \
+                (luborpetr/tesmart, the Home Assistant integration, pschmitt/tesmart.sh).",
+    },
+    ModelInfo {
+        key: "HKS1601-EB23",
+        aliases: &["eb23-16"],
+        family: Family::Kvm,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_EB23,
+        notes: "As HKS801-EB23, with 16 inputs.",
+    },
+    ModelInfo {
+        key: "HKS801-P23",
+        aliases: &["p23-8"],
+        family: Family::Kvm,
+        ports: PortCount::known(8),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_P23,
+        notes: "4K60 with USB 3.2 Gen1. The manual lists only 0x01, 0x02, 0x03 and 0x81; no \
+                field report exists for reading the active port or for the network commands on \
+                this series, so both are unverified.",
+    },
+    ModelInfo {
+        key: "HKS1601-P23",
+        aliases: &["p23-16"],
+        family: Family::Kvm,
+        ports: PortCount::known(16),
+        outputs: PortCount::known(1),
+        caps: archetype::KVM_P23,
+        notes: "As HKS801-P23, with 16 inputs.",
+    },
 ];

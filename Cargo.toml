@@ -15,6 +15,7 @@ repository = "https://github.com/ferrohd/tesmart"
 
 # Core
 thiserror = { version = "2.0.21", default-features = false }
+serde = { version = "1.0.229", default-features = false, features = ["derive"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

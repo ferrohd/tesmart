@@ -5,6 +5,15 @@
 //! timing quirks of real hardware (command spacing, reply retries, unsolicited port reports).
 //! Driving the bytes is the job of `tesmart-client` and the transport crates.
 //!
+//! # Features
+//!
+//! | Feature | Default | Effect |
+//! | --- | --- | --- |
+//! | `serde` | no | `Serialize`/`Deserialize` on ports, families, capabilities and settings |
+//!
+//! By default the crate is a bare protocol core: `no_std`, no allocator, and no dependencies
+//! beyond `thiserror`. It is built for `thumbv7em-none-eabi` in CI to keep that honest.
+//!
 //! # Protocol references
 //!
 //! Every opcode, quirk and capability flag in this crate cites its source in a doc comment:

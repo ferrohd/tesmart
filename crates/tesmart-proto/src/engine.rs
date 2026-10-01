@@ -220,3 +220,64 @@ pub enum SubmitError {
     #[error(transparent)]
     Wire(#[from] WireError),
 }
+
+/// What a pending exchange will accept as its answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Expectation {
+    /// The protocol defines no reply; the exchange is done once the bytes are handed over.
+    None,
+    /// Exactly this kind of reply.
+    Kind(ResponseKind),
+    /// Anything at all, used by raw exchanges.
+    Any,
+}
+
+impl Expectation {
+    fn matches(self, kind: ResponseKind) -> bool {
+        match self {
+            Self::None => false,
+            Self::Kind(expected) => expected == kind,
+            Self::Any => true,
+        }
+    }
+
+    const fn is_none(self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Exchange {
+    id: ExchangeId,
+    kind: Option<RequestKind>,
+    expectation: Expectation,
+    bytes: WireBytes,
+    transmit_kind: TransmitKind,
+    attempt: u8,
+    retriable: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum State<T> {
+    Idle,
+    /// Waiting for the command-spacing or retry gap to pass.
+    Queued {
+        exchange: Exchange,
+        ready_at: T,
+    },
+    /// Sent, waiting for a reply until `deadline`.
+    Awaiting {
+        exchange: Exchange,
+        deadline: T,
+    },
+}
+
+/// One decoded chunk, turned into something that does not borrow the decoder.
+#[derive(Debug, Clone, Copy)]
+enum Incoming {
+    Decoded(Response),
+    Frame(Frame),
+    Text(WireBytes),
+    BadPort { raw: u8 },
+    Dropped { len: usize },
+}

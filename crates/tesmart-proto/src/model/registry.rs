@@ -490,3 +490,195 @@ pub static MODELS: &[ModelInfo] = &[
                 SSW0401A10, so both resolve here.",
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::RequestKind;
+    use crate::model::lookup;
+    use crate::profile::Profile as _;
+
+    #[test]
+    fn looks_up_by_key_and_alias_ignoring_case() {
+        assert_eq!(lookup("HKS801-EB23").map(|m| m.key), Some("HKS801-EB23"));
+        assert_eq!(lookup("hks801-eb23").map(|m| m.key), Some("HKS801-EB23"));
+        assert_eq!(lookup(" eb23-8 ").map(|m| m.key), Some("HKS801-EB23"));
+        assert_eq!(lookup("dual-4port").map(|m| m.family), Some(Family::KvmDual));
+        assert_eq!(lookup("nonexistent"), None);
+    }
+
+    #[test]
+    fn keys_and_aliases_are_unique() {
+        let mut names = std::collections::BTreeSet::new();
+        for model in MODELS {
+            assert!(names.insert(model.key.to_ascii_lowercase()), "duplicate {}", model.key);
+            for alias in model.aliases {
+                assert!(names.insert(alias.to_ascii_lowercase()), "duplicate alias {alias}");
+            }
+        }
+    }
+
+    #[test]
+    fn capability_provenance_follows_the_protocol_reference() {
+        // the 4x1 DVI PDF documents only switching
+        let dvi = lookup("DKS0401A30").unwrap();
+        assert_eq!(dvi.support(RequestKind::Switch), Support::Documented);
+        assert_eq!(dvi.support(RequestKind::ReadActivePort), Support::Unsupported);
+        assert!(!dvi.supports(RequestKind::ReadActivePort));
+
+        // reading works on EB23 only because community tools do it
+        let eb23 = lookup("HKS1601-EB23").unwrap();
+        assert_eq!(eb23.support(RequestKind::ReadActivePort), Support::FieldTested);
+        assert!(eb23.supports(RequestKind::ReadActivePort));
+
+        // on P23 nobody has tried
+        let p23 = lookup("HKS801-P23").unwrap();
+        assert_eq!(p23.support(RequestKind::ReadActivePort), Support::Unverified);
+        assert!(!p23.supports(RequestKind::ReadActivePort));
+        assert!(p23.support(RequestKind::ReadActivePort).is_worth_trying());
+
+        // the 16x1 PDF omits auto input detect
+        let sixteen = lookup("HKS1601A10").unwrap();
+        assert_eq!(sixteen.support(RequestKind::AutoInputDetect), Support::FieldTested);
+    }
+
+    #[test]
+    fn family_support_overrides_capability_flags() {
+        let dual = lookup("dual-4port").unwrap();
+        // the dual-monitor family has no read command at all
+        assert_eq!(dual.support(RequestKind::ReadActivePort), Support::Unsupported);
+        // and its step command is community documented
+        assert_eq!(dual.support(RequestKind::StepOutput), Support::FieldTested);
+        assert!(dual.supports(RequestKind::StepOutput));
+
+        // a KVM never gets matrix commands, whatever the baseline says
+        let kvm = lookup("HKS0801A30").unwrap();
+        assert_eq!(kvm.support(RequestKind::MatrixRoute), Support::Unsupported);
+
+        // and a matrix never gets KVM commands
+        let matrix = lookup("HMA0404B30").unwrap();
+        assert_eq!(matrix.support(RequestKind::Switch), Support::Unsupported);
+        assert_eq!(matrix.support(RequestKind::MatrixRoute), Support::Documented);
+        assert_eq!(matrix.support(RequestKind::NetQuery), Support::Documented);
+    }
+
+    /// Each capability field and the requests that read it.
+    ///
+    /// One field can back more than one request, because the families spell the same idea
+    /// differently: a KVM's `0x03` and a matrix's `MT00CT` are both `display_timeout`. A field
+    /// is therefore legitimate for a model if *any* of its requests exists in that family.
+    const FIELDS: &[(&str, &[RequestKind])] = &[
+        ("read_port", &[RequestKind::ReadActivePort]),
+        ("buzzer", &[RequestKind::Buzzer, RequestKind::MatrixBuzzer]),
+        ("display_timeout", &[RequestKind::DisplayTimeout, RequestKind::MatrixDisplayTimeout]),
+        ("auto_detect", &[RequestKind::AutoInputDetect]),
+        ("presets", &[RequestKind::MatrixLoadPreset, RequestKind::MatrixSavePreset]),
+        ("net_config", &[RequestKind::NetQuery, RequestKind::NetSet]),
+    ];
+
+    #[test]
+    fn every_entry_is_internally_consistent() {
+        for model in MODELS {
+            // a capability can only be claimed for a command the family actually has
+            for (field, kinds) in FIELDS {
+                let claimed = kinds.iter().any(|kind| model.caps.support(*kind).is_available());
+                let exists = kinds.iter().any(|kind| model.family.supports(*kind));
+                assert!(
+                    !claimed || exists,
+                    "{} claims {field} but family {} has no such command",
+                    model.key,
+                    model.family
+                );
+            }
+
+            assert!(model.ports.get() >= 2, "{} has too few inputs", model.key);
+            assert_ne!(std::format!("{model}"), "");
+
+            // a matrix is square in every published document; a KVM has one or two outputs
+            match model.family {
+                Family::Matrix => assert_eq!(
+                    model.ports.get(),
+                    model.outputs.get(),
+                    "{} is not square; check the document",
+                    model.key
+                ),
+                _ => {
+                    assert!(model.outputs.get() <= 2, "{} claims more than two outputs", model.key);
+                }
+            }
+        }
+    }
+
+    /// Whatever the capability flags say, the family has the last word.
+    #[test]
+    fn the_family_overrides_every_claim() {
+        for model in MODELS {
+            for (_, kinds) in FIELDS {
+                for kind in *kinds {
+                    if !model.family.supports(*kind) {
+                        assert_eq!(
+                            model.support(*kind),
+                            Support::Unsupported,
+                            "{} reports {kind} as available",
+                            model.key
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The four matrix command sets differ, and the registry has to reflect that.
+    #[test]
+    fn matrix_capabilities_follow_their_documents() {
+        // RS232-only 4x4: routing and nothing else
+        let rs232 = lookup("HMA0404A40").unwrap();
+        assert_eq!(rs232.support(RequestKind::MatrixRoute), Support::Documented);
+        assert_eq!(rs232.support(RequestKind::MatrixDisplayTimeout), Support::Unsupported);
+        assert_eq!(rs232.support(RequestKind::NetQuery), Support::Unsupported);
+        assert_eq!(rs232.support(RequestKind::MatrixSavePreset), Support::Unsupported);
+
+        // 4x4 with LAN: the only series with MT00CT, and still no presets
+        let four = lookup("HMA0404B30").unwrap();
+        assert_eq!(four.support(RequestKind::MatrixDisplayTimeout), Support::Documented);
+        assert_eq!(four.support(RequestKind::NetQuery), Support::Documented);
+        assert_eq!(four.support(RequestKind::MatrixSavePreset), Support::Unsupported);
+        assert_eq!(four.support(RequestKind::MatrixBuzzer), Support::Unsupported);
+
+        // 8x8 and 16x16: presets and a buzzer, but no MT00CT
+        for key in ["HMA0808A10", "HMA1616A10"] {
+            let large = lookup(key).unwrap();
+            assert_eq!(large.support(RequestKind::MatrixSavePreset), Support::Documented, "{key}");
+            assert_eq!(large.support(RequestKind::MatrixLoadPreset), Support::Documented, "{key}");
+            assert_eq!(large.support(RequestKind::MatrixBuzzer), Support::Documented, "{key}");
+            assert_eq!(
+                large.support(RequestKind::MatrixDisplayTimeout),
+                Support::Unsupported,
+                "{key}"
+            );
+        }
+    }
+
+    /// The SDI switch has one command and cannot be asked anything.
+    #[test]
+    fn the_sdi_switch_has_exactly_one_command() {
+        let sdi = lookup("SSW04010A10").unwrap();
+        assert_eq!(sdi.family, Family::Sdi);
+        assert_eq!(sdi.ports.get(), 4);
+        assert_eq!(sdi.support(RequestKind::Switch), Support::Documented);
+
+        for kind in [
+            RequestKind::ReadActivePort,
+            RequestKind::Buzzer,
+            RequestKind::DisplayTimeout,
+            RequestKind::AutoInputDetect,
+            RequestKind::NetQuery,
+            RequestKind::MatrixRoute,
+        ] {
+            assert_eq!(sdi.support(kind), Support::Unsupported, "{kind}");
+        }
+
+        // and the document's own spelling resolves to the same entry
+        assert_eq!(lookup("SSW0401A10").map(|model| model.key), Some("SSW04010A10"));
+    }
+}

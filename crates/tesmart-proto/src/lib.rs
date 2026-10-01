@@ -27,6 +27,7 @@
 mod buf;
 
 pub mod command;
+pub mod engine;
 pub mod model;
 pub mod port;
 pub mod profile;
@@ -35,6 +36,7 @@ pub mod value;
 pub mod wire;
 
 pub use crate::command::{Request, RequestKind, Response, ResponseKind};
+pub use crate::engine::{Engine, Event, ExchangeId, Policy};
 pub use crate::model::{Capabilities, ModelInfo, Support};
 pub use crate::port::{Port, PortCount};
 pub use crate::profile::{Family, Profile};

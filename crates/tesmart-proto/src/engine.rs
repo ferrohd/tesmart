@@ -281,3 +281,62 @@ enum Incoming {
     BadPort { raw: u8 },
     Dropped { len: usize },
 }
+
+/// The protocol engine: bytes in, events out, no IO.
+#[derive(Debug)]
+pub struct Engine<P: Profile, T: Timestamp> {
+    profile: P,
+    policy: Policy,
+    decoder: StreamDecoder,
+    events: Ring<Event, EVENT_CAPACITY>,
+    dropped_events: u32,
+    state: State<T>,
+    next_id: NonZeroU32,
+    last_transmit: Option<T>,
+    last_port_report: Option<(Port, T)>,
+}
+
+impl<P: Profile, T: Timestamp> Engine<P, T> {
+    /// An engine for `profile`, with the default [`Policy`].
+    pub fn new(profile: P) -> Self {
+        Self::with_policy(profile, Policy::DEFAULT)
+    }
+
+    /// An engine for `profile` with an explicit policy.
+    pub fn with_policy(profile: P, policy: Policy) -> Self {
+        Self {
+            profile,
+            policy,
+            decoder: StreamDecoder::new(),
+            events: Ring::new(),
+            dropped_events: 0,
+            state: State::Idle,
+            next_id: NonZeroU32::MIN,
+            last_transmit: None,
+            last_port_report: None,
+        }
+    }
+
+    /// The profile in use.
+    pub fn profile(&self) -> P {
+        self.profile
+    }
+
+    /// The policy in use.
+    pub const fn policy(&self) -> &Policy {
+        &self.policy
+    }
+
+    /// Replaces the policy. Takes effect on the next exchange.
+    pub const fn set_policy(&mut self, policy: Policy) {
+        self.policy = policy;
+    }
+
+    /// Queues a request.
+    ///
+    /// Validation against the profile happens here, before any byte is produced: a command that
+    /// does not exist in this family can never reach the switch.
+    ///
+    /// # Errors
+    ///
+}

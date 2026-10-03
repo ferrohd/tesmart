@@ -498,4 +498,54 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
             });
         }
     }
+
+    /// The next event, oldest first.
+    pub fn poll_event(&mut self) -> Option<Event> {
+        self.events.pop()
+    }
+
+    /// Whether no exchange is in flight.
+    pub const fn is_idle(&self) -> bool {
+        matches!(self.state, State::Idle)
+    }
+
+    /// The exchange in flight, if any.
+    pub const fn pending(&self) -> Option<ExchangeId> {
+        match &self.state {
+            State::Idle => None,
+            State::Queued { exchange, .. } | State::Awaiting { exchange, .. } => Some(exchange.id),
+        }
+    }
+
+    /// The kind of request in flight, if any. `None` for raw exchanges.
+    pub const fn pending_kind(&self) -> Option<RequestKind> {
+        match &self.state {
+            State::Idle => None,
+            State::Queued { exchange, .. } | State::Awaiting { exchange, .. } => exchange.kind,
+        }
+    }
+
+    /// How many events were dropped because the caller did not drain them.
+    pub const fn dropped_events(&self) -> u32 {
+        self.dropped_events
+    }
+
+    /// How many events are waiting to be polled.
+    pub const fn queued_events(&self) -> usize {
+        self.events.len()
+    }
+
+    /// Abandons the in-flight exchange and empties the decode buffer.
+    ///
+    /// Call this after a reconnect. The time of the last transmission is deliberately kept: the
+    /// switch needs its gap between commands whether or not the connection was replaced.
+    pub fn reset(&mut self) {
+        self.decoder.reset();
+        self.last_port_report = None;
+        if let State::Queued { exchange, .. } | State::Awaiting { exchange, .. } =
+            mem::replace(&mut self.state, State::Idle)
+        {
+            self.push(Event::Failed { id: exchange.id, error: ExchangeError::Aborted });
+        }
+    }
 }

@@ -548,4 +548,115 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
             self.push(Event::Failed { id: exchange.id, error: ExchangeError::Aborted });
         }
     }
+
+    /// Queues an exchange, delaying it until the switch is ready for another command.
+    fn queue(&mut self, exchange: Exchange, now: T) -> ExchangeId {
+        let id = exchange.id;
+        let ready_at = match self.last_transmit {
+            Some(last) => {
+                let gate = last + self.policy.min_command_interval;
+                if gate > now { gate } else { now }
+            }
+            // Nothing has been sent yet, so there is nothing to wait for.
+            None => now,
+        };
+        self.state = State::Queued { exchange, ready_at };
+        id
+    }
+
+    fn drain(&mut self, now: T) {
+        loop {
+            let profile = self.profile;
+            let incoming = match self.decoder.poll_chunk() {
+                None => break,
+                Some(chunk) => classify(profile, &chunk),
+            };
+            self.apply(incoming, now);
+        }
+    }
+
+    fn apply(&mut self, incoming: Incoming, now: T) {
+        match incoming {
+            Incoming::Decoded(response) => self.deliver(response, now),
+            Incoming::Frame(frame) => {
+                if self.expects_any() {
+                    self.complete(Response::Frame(frame), now);
+                } else {
+                    self.push(Event::UnexpectedFrame { opcode: frame.opcode });
+                }
+            }
+            Incoming::Text(bytes) => {
+                if self.expects_any() {
+                    self.complete(Response::Text(bytes), now);
+                } else {
+                    self.push(Event::UnexpectedReply { kind: ResponseKind::Text });
+                }
+            }
+            Incoming::BadPort { raw } => self.push(Event::InvalidPortReport { raw }),
+            Incoming::Dropped { len } => self.push(Event::Desync { dropped: len }),
+        }
+    }
+
+    /// Routes a response either to the exchange that asked for it, or to an event.
+    fn deliver(&mut self, response: Response, now: T) {
+        if self.expects(response.kind()) {
+            self.complete(response, now);
+            return;
+        }
+
+        match response {
+            Response::ActivePort(port) => {
+                if self.is_duplicate_report(port, now) {
+                    // The late reply to a read that was already retried and answered.
+                    return;
+                }
+                self.last_port_report = Some((port, now));
+                self.push(Event::PortChanged(port));
+            }
+            other => self.push(Event::UnexpectedReply { kind: other.kind() }),
+        }
+    }
+
+    fn complete(&mut self, response: Response, now: T) {
+        let State::Awaiting { exchange, .. } = mem::replace(&mut self.state, State::Idle) else {
+            return;
+        };
+        if let Response::ActivePort(port) = response {
+            self.last_port_report = Some((port, now));
+        }
+        self.push(Event::Completed { id: exchange.id, response });
+    }
+
+    fn expects(&self, kind: ResponseKind) -> bool {
+        match &self.state {
+            State::Awaiting { exchange, .. } => exchange.expectation.matches(kind),
+            _ => false,
+        }
+    }
+
+    fn expects_any(&self) -> bool {
+        matches!(
+            &self.state,
+            State::Awaiting { exchange, .. } if matches!(exchange.expectation, Expectation::Any)
+        )
+    }
+
+    fn is_duplicate_report(&self, port: Port, now: T) -> bool {
+        match self.last_port_report {
+            Some((previous, at)) => previous == port && now <= at + self.policy.duplicate_window,
+            None => false,
+        }
+    }
+
+    fn push(&mut self, event: Event) {
+        if self.events.push(event) {
+            self.dropped_events = self.dropped_events.saturating_add(1);
+        }
+    }
+
+    fn take_id(&mut self) -> ExchangeId {
+        let id = ExchangeId(self.next_id);
+        self.next_id = self.next_id.checked_add(1).unwrap_or(NonZeroU32::MIN);
+        id
+    }
 }

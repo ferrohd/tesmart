@@ -339,4 +339,73 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
     ///
     /// # Errors
     ///
+    /// [`SubmitError::Unsupported`] if the family has no such command, or
+    /// [`SubmitError::Busy`] if an exchange is already in flight.
+    pub fn submit(&mut self, request: Request, now: T) -> Result<ExchangeId, SubmitError> {
+        if let Some(pending) = self.pending() {
+            return Err(SubmitError::Busy { pending });
+        }
+
+        let transmit = self.profile.encode(request, self.policy.ascii_style())?;
+        let kind = request.kind();
+        let expectation = match kind.expects() {
+            Some(response) => Expectation::Kind(response),
+            None => Expectation::None,
+        };
+
+        let id = self.take_id();
+        Ok(self.queue(
+            Exchange {
+                id,
+                kind: Some(kind),
+                expectation,
+                bytes: transmit.bytes(),
+                transmit_kind: transmit.kind(),
+                attempt: 1,
+                // Repeating a read is harmless; repeating a write is not.
+                retriable: kind.is_query(),
+            },
+            now,
+        ))
+    }
+
+    /// Queues raw bytes, bypassing the profile tables.
+    ///
+    /// The escape hatch for probing undocumented models. With `expect_reply` the exchange
+    /// completes on whatever comes back first, as [`Response::Frame`] or [`Response::Text`];
+    /// nothing is ever retransmitted.
+    ///
+    /// # Errors
+    ///
+    /// [`SubmitError::Wire`] if `bytes` is longer than one protocol unit, or
+    /// [`SubmitError::Busy`] if an exchange is already in flight.
+    pub fn submit_raw(
+        &mut self,
+        bytes: &[u8],
+        expect_reply: bool,
+        now: T,
+    ) -> Result<ExchangeId, SubmitError> {
+        if let Some(pending) = self.pending() {
+            return Err(SubmitError::Busy { pending });
+        }
+
+        let wire = WireBytes::from_slice(bytes)?;
+        let id = self.take_id();
+        Ok(self.queue(
+            Exchange {
+                id,
+                kind: None,
+                expectation: if expect_reply { Expectation::Any } else { Expectation::None },
+                bytes: wire,
+                transmit_kind: TransmitKind::Raw,
+                attempt: 1,
+                retriable: false,
+            },
+            now,
+        ))
+    }
+
+    /// The bytes to write, if the switch is ready to be written to.
+    ///
+    /// `None` means either nothing is queued, or the command-spacing gap has not passed yet;
 }

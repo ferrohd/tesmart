@@ -443,4 +443,59 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
             State::Awaiting { deadline, .. } => Some(*deadline),
         }
     }
+
+    /// Feeds bytes read from the switch.
+    pub fn handle_input(&mut self, data: &[u8], now: T) {
+        let mut rest = data;
+        loop {
+            let accepted = self.decoder.feed(rest);
+            rest = &rest[accepted..];
+            self.drain(now);
+
+            if rest.is_empty() {
+                break;
+            }
+            if accepted == 0 {
+                // The buffer is full of bytes that cannot start anything valid.
+                let dropped = self.decoder.buffered();
+                self.decoder.reset();
+                self.push(Event::Desync { dropped });
+            }
+        }
+    }
+
+    /// Acts on an expired deadline: retransmits a query, or fails the exchange.
+    pub fn handle_timeout(&mut self, now: T) {
+        match &self.state {
+            State::Awaiting { deadline, .. } if now >= *deadline => {}
+            _ => return,
+        }
+
+        // A reply with no terminator is still a reply. `OK` has been seen arriving bare.
+        let profile = self.profile;
+        let recovered =
+            self.decoder.flush_ascii().and_then(|text| profile.decode(&Chunk::Ascii(text)));
+        if let Some(response) = recovered {
+            self.deliver(response, now);
+            if !matches!(self.state, State::Awaiting { .. }) {
+                return;
+            }
+        }
+
+        let State::Awaiting { mut exchange, .. } = mem::replace(&mut self.state, State::Idle)
+        else {
+            return;
+        };
+
+        if exchange.retriable && exchange.attempt <= self.policy.max_retries {
+            exchange.attempt += 1;
+            let ready_at = now + self.policy.retry_backoff;
+            self.state = State::Queued { exchange, ready_at };
+        } else {
+            self.push(Event::Failed {
+                id: exchange.id,
+                error: ExchangeError::Timeout { attempts: exchange.attempt },
+            });
+        }
+    }
 }

@@ -3,6 +3,37 @@
 //! One [`Engine`] drives one switch. It owns everything about the conversation except the bytes
 //! moving: encoding, demultiplexing, command spacing, reply deadlines and retries. The caller
 //! owns the socket and the clock.
+//!
+//! # Contract
+//!
+//! ```text
+//! loop {
+//!     while let Some(event)    = engine.poll_event()      { handle(event) }
+//!     if    let Some(transmit) = engine.poll_transmit(now) { write(&transmit); continue }
+//!     match engine.poll_timeout() {
+//!         Some(deadline) => select! { data = read() => engine.handle_input(data, now),
+//!                                     _    = sleep_until(deadline) => engine.handle_timeout(now) },
+//!         None => break,
+//!     }
+//! }
+//! ```
+//!
+//! [`poll_transmit`](Engine::poll_transmit) assumes the bytes it returns reach the wire before
+//! it is called again: command spacing is measured from the moment a transmission is handed
+//! over.
+//!
+//! # What it protects you from
+//!
+//! | Hardware behaviour | What the engine does |
+//! | --- | --- |
+//! | The switch pushes a port report when someone presses a front button | [`Event::PortChanged`], never mistaken for the answer to a pending command |
+//! | Read replies are sometimes missing or garbage | queries are retransmitted, up to [`Policy::max_retries`] |
+//! | Commands sent less than a second apart are ignored | [`poll_transmit`](Engine::poll_transmit) withholds the bytes until the gap has passed |
+//! | A retried read produces two replies | the late duplicate is dropped, not reported as a change |
+//! | The stream contains garbage | [`Event::Desync`], and the decoder resynchronises |
+//!
+//! Sources for the timings: `bbeaudoin/bash` (1 s spacing), `pschmitt/tesmart.sh` (retry every
+//! 200 ms), PiKVM `kvmd` (5 s socket timeout, one connection per command).
 
 use core::fmt;
 use core::mem;

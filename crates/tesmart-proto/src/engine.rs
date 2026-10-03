@@ -408,4 +408,39 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
     /// The bytes to write, if the switch is ready to be written to.
     ///
     /// `None` means either nothing is queued, or the command-spacing gap has not passed yet;
+    /// [`poll_timeout`](Self::poll_timeout) says when to try again.
+    pub fn poll_transmit(&mut self, now: T) -> Option<Transmit> {
+        match &self.state {
+            State::Queued { ready_at, .. } if now >= *ready_at => {}
+            _ => return None,
+        }
+
+        let State::Queued { exchange, .. } = mem::replace(&mut self.state, State::Idle) else {
+            return None;
+        };
+
+        let transmit =
+            Transmit::new(exchange.bytes, exchange.transmit_kind).with_attempt(exchange.attempt);
+        self.last_transmit = Some(now);
+
+        if exchange.expectation.is_none() {
+            // Nothing will ever come back for this command, by design.
+            self.push(Event::Completed { id: exchange.id, response: Response::Accepted });
+        } else {
+            let deadline = now + self.policy.reply_timeout;
+            self.state = State::Awaiting { exchange, deadline };
+        }
+
+        Some(transmit)
+    }
+
+    /// When [`handle_timeout`](Self::handle_timeout) or
+    /// [`poll_transmit`](Self::poll_transmit) next needs to be called.
+    pub fn poll_timeout(&self) -> Option<T> {
+        match &self.state {
+            State::Idle => None,
+            State::Queued { ready_at, .. } => Some(*ready_at),
+            State::Awaiting { deadline, .. } => Some(*deadline),
+        }
+    }
 }

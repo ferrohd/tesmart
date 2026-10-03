@@ -660,3 +660,20 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
         id
     }
 }
+
+fn classify<P: Profile>(profile: P, chunk: &Chunk<'_>) -> Incoming {
+    if let Some(response) = profile.decode(chunk) {
+        return Incoming::Decoded(response);
+    }
+    match chunk {
+        Chunk::Frame(frame) => Incoming::Frame(*frame),
+        // Only reachable when the active profile ignores port reports, i.e. a matrix answering
+        // with a KVM frame: the wrong family was selected.
+        Chunk::PortReport(port) => {
+            Incoming::Frame(Frame::one(OPCODE_PORT_REPORT, port.to_read_byte()))
+        }
+        Chunk::BadPortReport { raw } => Incoming::BadPort { raw: *raw },
+        Chunk::Ascii(text) => Incoming::Text(WireBytes::from_slice_truncating(text.as_bytes()).0),
+        Chunk::Discarded(bytes) => Incoming::Dropped { len: bytes.len() },
+    }
+}

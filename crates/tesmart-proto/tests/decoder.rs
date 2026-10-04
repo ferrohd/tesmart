@@ -194,3 +194,52 @@ fn the_buffer_cannot_be_overrun() {
     assert_eq!(accepted_total, flood.len());
     assert!(decoder.buffered() <= decoder.capacity());
 }
+
+proptest! {
+    /// Arbitrary bytes must never panic the decoder, and must never produce a unit that claims
+    /// to be a port report when it is not.
+    #[test]
+    fn arbitrary_streams_are_safe(stream in proptest::collection::vec(any::<u8>(), 0..300)) {
+        let units = decode(&[stream.as_slice()]);
+        for unit in &units {
+            if let Unit::Port(port) = unit {
+                prop_assert!((1..=16).contains(port));
+            }
+        }
+    }
+
+    /// The central property, over random streams and random cut points.
+    #[test]
+    fn chunking_does_not_change_the_result(
+        stream in proptest::collection::vec(any::<u8>(), 0..120),
+        cut in 0usize..120,
+    ) {
+        let at = cut.min(stream.len());
+        let (head, tail) = stream.split_at(at);
+        prop_assert_eq!(
+            semantics(&decode(&[head, tail])),
+            semantics(&decode(&[stream.as_slice()]))
+        );
+    }
+
+    /// Any well-formed frame decodes back to itself.
+    #[test]
+    fn frames_round_trip(opcode in any::<u8>(), first in any::<u8>(), second in any::<u8>(), two in any::<bool>()) {
+        use tesmart_proto::wire::{Frame, Payload};
+
+        let payload = if two { Payload::Two([first, second]) } else { Payload::One(first) };
+        let frame = Frame { opcode, payload };
+        let units = decode(&[frame.encode().as_slice()]);
+
+        // 0x11 with one data byte is a port report, which is the decoder's job to interpret
+        let expected = if opcode == 0x11 && !two {
+            match first {
+                0..=15 => Unit::Port(first + 1),
+                raw => Unit::BadPort(raw),
+            }
+        } else {
+            Unit::Frame(opcode, payload.as_slice().to_vec())
+        };
+        prop_assert_eq!(units, vec![expected]);
+    }
+}

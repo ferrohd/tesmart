@@ -207,3 +207,61 @@ fn family_b_network_strings() {
 }
 
 /// Family C has four commands, and they are all four bytes long.
+#[test]
+fn family_c_frames() {
+    let vectors: &[(Request, &[u8])] = &[
+        (Request::Switch(port(1)), &[0xAA, 0xCC, 0x01, 0x01]),
+        (Request::Switch(port(2)), &[0xAA, 0xCC, 0x01, 0x02]),
+        (Request::Switch(port(3)), &[0xAA, 0xCC, 0x01, 0x03]),
+        (Request::Switch(port(4)), &[0xAA, 0xCC, 0x01, 0x04]),
+    ];
+
+    for (request, expected) in vectors {
+        assert_eq!(bytes(Sdi, *request), *expected, "{request}");
+    }
+}
+
+#[test]
+fn replies_from_the_documentation() {
+    // AA BB 03 11 XX EE, XX 0-based
+    let mut decoder: StreamDecoder = StreamDecoder::new();
+    decoder.feed(&[0xAA, 0xBB, 0x03, 0x11, 0x00, 0xEE]);
+    assert_eq!(decoder.poll_chunk(), Some(Chunk::PortReport(port(1))));
+
+    decoder.feed(&[0xAA, 0xBB, 0x03, 0x11, 0x0F, 0xEE]);
+    assert_eq!(decoder.poll_chunk(), Some(Chunk::PortReport(port(16))));
+
+    // zero-padded ASCII replies, with the ';' arriving separately
+    for (reply, expected) in [
+        ("IP:010.000.002.012", NetSetting::Ip("10.0.2.12".parse().unwrap())),
+        ("PT:05000", NetSetting::Port(5000)),
+        ("GW:010.000.002.001", NetSetting::Gateway("10.0.2.1".parse().unwrap())),
+        ("MA:255.255.255.000", NetSetting::Mask("255.255.255.0".parse().unwrap())),
+    ] {
+        decoder.feed(reply.as_bytes());
+        decoder.feed(b";");
+        let Some(Chunk::Ascii(text)) = decoder.poll_chunk() else {
+            panic!("{reply} did not decode")
+        };
+        assert_eq!(Kvm.decode(&Chunk::Ascii(text)), Some(Response::Net(expected)));
+    }
+
+    // OK for a write
+    decoder.feed(b"OK");
+    let Some(Chunk::Ascii(text)) = decoder.poll_chunk() else { panic!("OK did not decode") };
+    assert_eq!(Kvm.decode(&Chunk::Ascii(text)), Some(Response::Ack));
+}
+
+#[test]
+fn the_length_byte_is_the_payload_length_plus_two() {
+    assert_eq!(Frame::one(0x01, 0x02).encode().as_slice()[2], 0x03);
+    assert_eq!(Frame::two(0x09, [0, 5]).encode().as_slice()[2], 0x04);
+
+    // and the decoder reads it back the same way
+    let mut decoder: StreamDecoder = StreamDecoder::new();
+    decoder.feed(&[0xAA, 0xBB, 0x04, 0x09, 0x00, 0x05, 0xEE]);
+    assert_eq!(
+        decoder.poll_chunk(),
+        Some(Chunk::Frame(Frame { opcode: 0x09, payload: Payload::Two([0x00, 0x05]) }))
+    );
+}

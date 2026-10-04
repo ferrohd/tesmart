@@ -96,3 +96,114 @@ fn family_a_ignores_the_ascii_scope() {
         assert_eq!(bytes(Kvm, request), styled(Kvm, request, serial), "{request}");
     }
 }
+
+#[test]
+fn family_a_prime_frames() {
+    let vectors: &[(Request, &[u8])] = &[
+        (Request::Switch(port(4)), &[0xAA, 0xBB, 0x03, 0x01, 0x04, 0xEE]),
+        (Request::Buzzer(Buzzer::Muted), &[0xAA, 0xBB, 0x03, 0x02, 0x00, 0xEE]),
+        (
+            Request::StepOutput { output: Output::A, step: Step::Previous },
+            &[0xAA, 0xBB, 0x03, 0x03, 0x00, 0xEE],
+        ),
+        (
+            Request::StepOutput { output: Output::A, step: Step::Next },
+            &[0xAA, 0xBB, 0x03, 0x03, 0x01, 0xEE],
+        ),
+        (
+            Request::StepOutput { output: Output::B, step: Step::Previous },
+            &[0xAA, 0xBB, 0x03, 0x04, 0x00, 0xEE],
+        ),
+        (
+            Request::StepOutput { output: Output::B, step: Step::Next },
+            &[0xAA, 0xBB, 0x03, 0x04, 0x01, 0xEE],
+        ),
+        (Request::MoveUsb, &[0xAA, 0xBB, 0x03, 0x05, 0x01, 0xEE]),
+        // inverted: 0x00 turns pass-through on
+        (Request::KmPassthrough(Toggle::On), &[0xAA, 0xBB, 0x03, 0x06, 0x00, 0xEE]),
+        (Request::KmPassthrough(Toggle::Off), &[0xAA, 0xBB, 0x03, 0x06, 0x01, 0xEE]),
+        (Request::HotkeyTrigger(HotkeyTrigger::RightCtrl), &[0xAA, 0xBB, 0x03, 0x07, 0x01, 0xEE]),
+        (Request::HotkeyTrigger(HotkeyTrigger::ScrollLock), &[0xAA, 0xBB, 0x03, 0x07, 0x00, 0xEE]),
+        (Request::AutoSwitch(Toggle::Off), &[0xAA, 0xBB, 0x03, 0x08, 0x00, 0xEE]),
+        (Request::AutoSwitch(Toggle::On), &[0xAA, 0xBB, 0x03, 0x08, 0x01, 0xEE]),
+        // the only seven-byte frame in the protocol
+        (
+            Request::AutoSwitchInterval(SwitchInterval::from_raw(0x00, 0x05).unwrap()),
+            &[0xAA, 0xBB, 0x04, 0x09, 0x00, 0x05, 0xEE],
+        ),
+        (
+            Request::AutoSwitchInterval(SwitchInterval::from_raw(0x38, 0x38).unwrap()),
+            &[0xAA, 0xBB, 0x04, 0x09, 0x38, 0x38, 0xEE],
+        ),
+    ];
+
+    for (request, expected) in vectors {
+        assert_eq!(bytes(KvmDual, *request), *expected, "{request}");
+    }
+}
+
+#[test]
+fn family_b_strings() {
+    let vectors: &[(Request, &str)] = &[
+        (Request::MatrixRoute { input: port(1), output: port(2) }, "MT00SW0102NT"),
+        (Request::MatrixRouteAll(port(1)), "MT00SW0100NT"),
+        (Request::MatrixMirror, "MT00SW0000NT"),
+        (Request::MatrixReadRouting, "MT00RD0000NT"),
+        (Request::MatrixDisplayTimeout(MatrixTimeout::NEVER), "MT00CT0000NT"),
+        (Request::MatrixDisplayTimeout(MatrixTimeout::from_secs(9999).unwrap()), "MT00CT9999NT"),
+        // 8x8 and 16x16: presets, and a buzzer whose values are the other way round
+        (Request::MatrixSavePreset(Preset::new(1).unwrap()), "MT00SV0001NT"),
+        (Request::MatrixSavePreset(Preset::new(8).unwrap()), "MT00SV0008NT"),
+        (Request::MatrixLoadPreset(Preset::new(1).unwrap()), "MT00RD0101NT"),
+        (Request::MatrixLoadPreset(Preset::new(8).unwrap()), "MT00RD0108NT"),
+        (Request::MatrixBuzzer(Buzzer::Muted), "MT00BZEN01NT"),
+        (Request::MatrixBuzzer(Buzzer::Audible), "MT00BZEN00NT"),
+        // 16x16 addresses two digits per field
+        (Request::MatrixRoute { input: port(16), output: port(16) }, "MT00SW1616NT"),
+    ];
+
+    for (request, expected) in vectors {
+        assert_eq!(bytes(Matrix, *request), expected.as_bytes(), "{request}");
+    }
+}
+
+/// The matrix network commands, which are spelled differently per transport.
+#[test]
+fn family_b_network_strings() {
+    let lan: &[(Request, &str)] = &[
+        (Request::NetQuery(NetField::Ip), "IP?"),
+        (Request::NetQuery(NetField::Port), "PT?"),
+        (Request::NetQuery(NetField::Gateway), "GW?"),
+        (Request::NetQuery(NetField::Mask), "MA?"),
+    ];
+    for (request, expected) in lan {
+        assert_eq!(bytes(Matrix, *request), expected.as_bytes(), "{request}");
+    }
+
+    let serial_style = AsciiStyle::DEFAULT.with_scope(AsciiScope::Serial);
+    let serial: &[(Request, &str)] = &[
+        (Request::NetQuery(NetField::Ip), "MT8003IP?"),
+        (Request::NetQuery(NetField::Port), "MT8003PT?"),
+        (Request::NetQuery(NetField::Gateway), "MT8003GW?"),
+        (Request::NetQuery(NetField::Mask), "MT8003MA?"),
+        (
+            Request::NetSet(NetSetting::Ip("10.0.2.12".parse().unwrap())),
+            "MT8019IP:010.000.002.012;",
+        ),
+        // the port write is the one that uses MT8009
+        (Request::NetSet(NetSetting::Port(5000)), "MT8009PT:05000;"),
+        (
+            Request::NetSet(NetSetting::Gateway("10.0.2.1".parse().unwrap())),
+            "MT8019GW:010.000.002.001;",
+        ),
+        (
+            Request::NetSet(NetSetting::Mask("255.255.255.0".parse().unwrap())),
+            "MT8019MA:255.255.255.000;",
+        ),
+    ];
+    for (request, expected) in serial {
+        assert_eq!(styled(Matrix, *request, serial_style), expected.as_bytes(), "{request}");
+    }
+}
+
+/// Family C has four commands, and they are all four bytes long.

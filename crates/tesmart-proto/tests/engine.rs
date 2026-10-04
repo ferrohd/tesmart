@@ -101,3 +101,65 @@ fn the_engine_refuses_to_multiplex() {
     );
     assert_eq!(engine.pending(), Some(first));
 }
+
+#[test]
+fn unsupported_commands_never_reach_the_wire() {
+    let mut engine: Engine<KvmDual, Tick> = Engine::new(KvmDual);
+    let error = engine
+        .submit(Request::DisplayTimeout(DisplayTimeout::Never), Tick::ZERO)
+        .expect_err("0x03 means something else on dual-monitor switches");
+
+    assert!(matches!(error, SubmitError::Unsupported(_)));
+    assert!(engine.is_idle());
+    assert!(engine.poll_transmit(Tick::ZERO).is_none());
+}
+
+#[test]
+fn queries_are_retried_then_fail_loudly() {
+    let policy = Policy::DEFAULT.with_max_retries(2);
+    let mut engine = Engine::with_policy(Kvm, policy);
+    let mut now = Tick::ZERO;
+
+    let id = engine.submit(Request::ReadActivePort, now).unwrap();
+    assert_eq!(engine.poll_transmit(now).unwrap().attempt(), 1);
+
+    for attempt in 2..=3 {
+        // deadline passes with no reply
+        now = engine.poll_timeout().unwrap();
+        engine.handle_timeout(now);
+        assert!(events(&mut engine).is_empty(), "a retry is not a failure");
+
+        // the retry waits for the 200 ms backoff, not for the 1 s command gap
+        let retry_at = engine.poll_timeout().unwrap();
+        assert_eq!(retry_at, now + Duration::from_millis(200));
+        assert!(engine.poll_transmit(now).is_none());
+
+        now = retry_at;
+        assert_eq!(engine.poll_transmit(now).unwrap().attempt(), attempt);
+    }
+
+    now = engine.poll_timeout().unwrap();
+    engine.handle_timeout(now);
+    assert_eq!(
+        events(&mut engine),
+        [Event::Failed { id, error: ExchangeError::Timeout { attempts: 3 } }]
+    );
+    assert!(engine.is_idle());
+}
+
+#[test]
+fn writes_are_never_retried() {
+    // Repeating `IP:10.0.2.12;` on a flaky link is not something to do behind the user's back.
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id = engine.submit(Request::NetSet(NetSetting::Port(5000)), now).unwrap();
+    assert_eq!(&*engine.poll_transmit(now).unwrap(), b"PT:5000;");
+
+    let deadline = engine.poll_timeout().unwrap();
+    engine.handle_timeout(deadline);
+    assert_eq!(
+        events(&mut engine),
+        [Event::Failed { id, error: ExchangeError::Timeout { attempts: 1 } }]
+    );
+}

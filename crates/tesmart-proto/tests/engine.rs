@@ -229,3 +229,67 @@ fn the_late_reply_to_a_retried_read_is_not_a_port_change() {
     engine.handle_input(&port_report(3), now);
     assert_eq!(events(&mut engine), [Event::PortChanged(port(3))]);
 }
+
+#[test]
+fn garbage_read_replies_are_reported_and_retried() {
+    let mut engine = Engine::with_policy(Kvm, Policy::DEFAULT.with_max_retries(1));
+    let now = Tick::ZERO;
+
+    engine.submit(Request::ReadActivePort, now).unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+
+    // 0x10 is one past the last port: a known kind of bad reply
+    engine.handle_input(&[0xAA, 0xBB, 0x03, 0x11, 0x10, 0xEE], now);
+    assert_eq!(events(&mut engine), [Event::InvalidPortReport { raw: 0x10 }]);
+    assert!(!engine.is_idle(), "the read is still outstanding");
+
+    // the good reply to the retry is accepted
+    let deadline = engine.poll_timeout().unwrap();
+    engine.handle_timeout(deadline);
+    let ready = engine.poll_timeout().unwrap();
+    let _sent = engine.poll_transmit(ready).unwrap();
+    engine.handle_input(&port_report(2), ready);
+
+    assert!(matches!(
+        events(&mut engine).as_slice(),
+        [Event::Completed { response: Response::ActivePort(_), .. }]
+    ));
+}
+
+#[test]
+fn a_bare_ok_is_accepted_without_a_terminator() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id =
+        engine.submit(Request::NetSet(NetSetting::Ip("10.0.2.12".parse().unwrap())), now).unwrap();
+    assert_eq!(&*engine.poll_transmit(now).unwrap(), b"IP:10.0.2.12;");
+
+    // acknowledgements have been observed with no terminator at all
+    engine.handle_input(b"OK", now);
+    assert_eq!(events(&mut engine), [Event::Completed { id, response: Response::Ack }]);
+}
+
+#[test]
+fn a_truncated_reply_is_recovered_on_the_deadline() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id = engine.submit(Request::NetQuery(NetField::Ip), now).unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+
+    // the value arrives but its `;` never does, because the switch closed the connection
+    engine.handle_input(b"IP:010.000.002.012", now);
+    assert!(events(&mut engine).is_empty(), "a reply without a terminator is not complete yet");
+
+    let deadline = engine.poll_timeout().unwrap();
+    engine.handle_timeout(deadline);
+    assert_eq!(
+        events(&mut engine),
+        [Event::Completed {
+            id,
+            response: Response::Net(NetSetting::Ip("10.0.2.12".parse().unwrap())),
+        }],
+        "the deadline flushes what is buffered rather than throwing it away"
+    );
+}

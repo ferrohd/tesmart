@@ -14,6 +14,17 @@ the parts TESmart does not document, such as why the LAN port accepts configurat
 KVM firmware has never heard of — and [`docs/architecture.md`](docs/architecture.md) for how the
 code is laid out.
 
+## Development
+
+```sh
+cargo test --workspace --all-features
+cargo clippy --workspace --all-targets --all-features
+cargo build -p tesmart-proto  --target thumbv7em-none-eabi   # controller side, bare metal
+cargo build -p tesmart-device --target thumbv7em-none-eabi   # switch side, bare metal
+```
+
+A Nix flake provides the toolchain: `nix develop`.
+
 ## Licence
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).

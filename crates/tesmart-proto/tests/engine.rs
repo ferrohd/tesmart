@@ -163,3 +163,69 @@ fn writes_are_never_retried() {
         [Event::Failed { id, error: ExchangeError::Timeout { attempts: 1 } }]
     );
 }
+
+#[test]
+fn an_unsolicited_report_is_not_the_answer_to_another_command() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    // a switch command is in flight when someone presses a front panel button
+    let id = engine.submit(Request::Switch(port(2)), now).unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+    assert_eq!(events(&mut engine), [Event::Completed { id, response: Response::Accepted }]);
+
+    engine.handle_input(&port_report(7), now);
+    assert_eq!(events(&mut engine), [Event::PortChanged(port(7))]);
+}
+
+#[test]
+fn a_report_arriving_mid_read_still_answers_the_read() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id = engine.submit(Request::ReadActivePort, now).unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+
+    // two reports in one read: the first answers the query, the second is a change
+    engine.handle_input(&port_report(1), now);
+    engine.handle_input(&port_report(5), Tick::from_millis(10));
+
+    assert_eq!(
+        events(&mut engine),
+        [
+            Event::Completed { id, response: Response::ActivePort(port(1)) },
+            Event::PortChanged(port(5)),
+        ]
+    );
+}
+
+#[test]
+fn the_late_reply_to_a_retried_read_is_not_a_port_change() {
+    let mut engine = Engine::with_policy(Kvm, Policy::DEFAULT.with_max_retries(1));
+    let mut now = Tick::ZERO;
+
+    let id = engine.submit(Request::ReadActivePort, now).unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+
+    // first attempt times out, second attempt goes out
+    now = engine.poll_timeout().unwrap();
+    engine.handle_timeout(now);
+    now = engine.poll_timeout().unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+
+    // the switch answers twice: the slow first reply and the second one
+    engine.handle_input(&port_report(3), now);
+    now = now + Duration::from_millis(50);
+    engine.handle_input(&port_report(3), now);
+
+    assert_eq!(
+        events(&mut engine),
+        [Event::Completed { id, response: Response::ActivePort(port(3)) }],
+        "the duplicate must not be reported as someone switching ports"
+    );
+
+    // but a genuine change after the window is reported
+    now = now + Duration::from_secs(2);
+    engine.handle_input(&port_report(3), now);
+    assert_eq!(events(&mut engine), [Event::PortChanged(port(3))]);
+}

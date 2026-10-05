@@ -293,3 +293,136 @@ fn a_truncated_reply_is_recovered_on_the_deadline() {
         "the deadline flushes what is buffered rather than throwing it away"
     );
 }
+
+#[test]
+fn split_ascii_replies_are_reassembled() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id = engine.submit(Request::NetQuery(NetField::Ip), now).unwrap();
+    assert_eq!(&*engine.poll_transmit(now).unwrap(), b"IP?");
+
+    // the switch sends the value and the terminator in separate segments
+    engine.handle_input(b"IP:010.000.002.012", now);
+    assert_eq!(events(&mut engine).len(), 0);
+    engine.handle_input(b";", now);
+
+    assert_eq!(
+        events(&mut engine),
+        [Event::Completed {
+            id,
+            response: Response::Net(NetSetting::Ip("10.0.2.12".parse().unwrap())),
+        }]
+    );
+}
+
+#[test]
+fn junk_is_reported_without_losing_the_frame_behind_it() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id = engine.submit(Request::ReadActivePort, now).unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+
+    let mut stream = vec![0x00, 0xFF, 0x5A];
+    stream.extend_from_slice(&port_report(6));
+    engine.handle_input(&stream, now);
+
+    assert_eq!(
+        events(&mut engine),
+        [
+            Event::Desync { dropped: 3 },
+            Event::Completed { id, response: Response::ActivePort(port(6)) },
+        ]
+    );
+}
+
+#[test]
+fn a_reply_nobody_asked_for_is_reported_as_unexpected() {
+    let mut engine = kvm();
+    engine.handle_input(b"OK;", Tick::ZERO);
+    assert_eq!(events(&mut engine), [Event::UnexpectedReply { kind: ResponseKind::Ack }]);
+}
+
+#[test]
+fn raw_exchanges_bypass_the_tables_and_accept_any_reply() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id = engine.submit_raw(&[0xAA, 0xBB, 0x03, 0x42, 0x01, 0xEE], true, now).unwrap();
+    assert_eq!(&*engine.poll_transmit(now).unwrap(), &[0xAA, 0xBB, 0x03, 0x42, 0x01, 0xEE]);
+
+    engine.handle_input(&[0xAA, 0xBB, 0x03, 0x43, 0x07, 0xEE], now);
+    let [Event::Completed { id: done, response: Response::Frame(frame) }] =
+        events(&mut engine).as_slice()[..]
+    else {
+        panic!("a raw exchange takes whatever comes back")
+    };
+    assert_eq!(done, id);
+    assert_eq!(frame.opcode, 0x43);
+}
+
+#[test]
+fn raw_bytes_longer_than_a_protocol_unit_are_refused() {
+    let mut engine = kvm();
+    let too_long = [0x00; tesmart_proto::wire::MAX_WIRE_LEN + 1];
+    assert!(matches!(engine.submit_raw(&too_long, false, Tick::ZERO), Err(SubmitError::Wire(_))));
+
+    // and the limit itself is accepted, so the boundary is where it claims to be
+    let at_limit = [0x00; tesmart_proto::wire::MAX_WIRE_LEN];
+    assert!(engine.submit_raw(&at_limit, false, Tick::ZERO).is_ok());
+}
+
+#[test]
+fn reset_abandons_the_exchange_but_keeps_the_command_gap() {
+    let mut engine = kvm();
+    let now = Tick::ZERO;
+
+    let id = engine.submit(Request::ReadActivePort, now).unwrap();
+    let _sent = engine.poll_transmit(now).unwrap();
+    engine.handle_input(&[0xAA, 0xBB], now); // partial frame, then the link drops
+
+    engine.reset();
+    assert_eq!(events(&mut engine), [Event::Failed { id, error: ExchangeError::Aborted }]);
+    assert!(engine.is_idle());
+
+    // a command on the new connection still waits for the switch's 1 s gap
+    engine.submit(Request::Switch(port(1)), now).unwrap();
+    assert!(engine.poll_transmit(now).is_none());
+    assert!(engine.poll_transmit(now + SECOND).is_some());
+}
+
+#[test]
+fn events_are_dropped_oldest_first_and_counted() {
+    let mut engine = Engine::with_policy(Kvm, Policy::IMMEDIATE);
+    let mut now = Tick::ZERO;
+
+    // more unsolicited reports than the event queue holds, alternating so none is a duplicate
+    for round in 0..12u8 {
+        let human = if round % 2 == 0 { 1 } else { 2 };
+        engine.handle_input(&port_report(human), now);
+        now = now + Duration::from_millis(200);
+    }
+
+    assert!(engine.dropped_events() > 0);
+    assert_eq!(engine.queued_events(), 8);
+    // the newest report survives
+    let last = events(&mut engine).pop().unwrap();
+    assert_eq!(last, Event::PortChanged(port(2)));
+}
+
+#[test]
+fn settings_are_fire_and_forget_for_every_hex_family() {
+    for request in
+        [Request::Buzzer(Buzzer::Muted), Request::DisplayTimeout(DisplayTimeout::Seconds30)]
+    {
+        let mut engine = kvm();
+        let id = engine.submit(request, Tick::ZERO).unwrap();
+        let _sent = engine.poll_transmit(Tick::ZERO).unwrap();
+        assert_eq!(
+            events(&mut engine),
+            [Event::Completed { id, response: Response::Accepted }],
+            "{request} cannot be verified: the switch says nothing"
+        );
+    }
+}

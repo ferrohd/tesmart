@@ -229,3 +229,94 @@ impl DeviceState {
         }
     }
 }
+
+/// An emulated switch.
+#[derive(Debug)]
+pub struct Device {
+    config: DeviceConfig,
+    state: DeviceState,
+    decoder: StreamDecoder,
+    outbox: Outbox,
+    replies: u32,
+    reports: u32,
+}
+
+impl Device {
+    /// Creates an emulator.
+    pub fn new(config: DeviceConfig) -> Self {
+        Self {
+            config,
+            state: DeviceState::new(),
+            decoder: StreamDecoder::with_mode(DecodeMode::Device),
+            outbox: Outbox::new(),
+            replies: 0,
+            reports: 0,
+        }
+    }
+
+    /// Creates an emulator of a registry entry.
+    pub fn from_model(model: &ModelInfo) -> Self {
+        Self::new(DeviceConfig::from_model(model))
+    }
+
+    /// The configuration in use.
+    pub const fn config(&self) -> &DeviceConfig {
+        &self.config
+    }
+
+    /// The current settings.
+    pub const fn state(&self) -> &DeviceState {
+        &self.state
+    }
+
+    /// Replaces the fault configuration mid-test.
+    pub const fn set_faults(&mut self, faults: Faults) {
+        self.config.faults = faults;
+    }
+
+    /// Feeds bytes written by a controller.
+    pub fn handle_input(&mut self, data: &[u8]) {
+        let mut rest = data;
+        loop {
+            let accepted = self.decoder.feed(rest);
+            rest = &rest[accepted..];
+            self.drain();
+
+            if rest.is_empty() {
+                break;
+            }
+            if accepted == 0 {
+                self.decoder.reset();
+            }
+        }
+    }
+
+    /// The next segment the switch would put on the wire.
+    pub fn poll_transmit(&mut self) -> Option<WireBytes> {
+        self.outbox.pop()
+    }
+
+    /// Changes the active port without telling anyone.
+    ///
+    /// Models a unit that does not push unsolicited reports, which is firmware dependent and
+    /// undocumented: the only way to notice is to read the port.
+    pub fn force_port(&mut self, port: Port) {
+        if !self.config.ports.contains(port) {
+            return;
+        }
+        self.state.active_port = port;
+        self.state.switch_count += 1;
+    }
+
+    /// Simulates someone pressing a front panel button, using a hotkey or the remote.
+    ///
+    /// The switch pushes an unsolicited port report when the active port changes by any means.
+    pub fn press_button(&mut self, port: Port) {
+        if !self.config.ports.contains(port) {
+            return;
+        }
+        self.state.active_port = port;
+        self.state.switch_count += 1;
+        self.send_port_report(port);
+    }
+}

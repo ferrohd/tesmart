@@ -158,3 +158,74 @@ impl DeviceConfig {
         self
     }
 }
+
+/// The emulated switch's settings, for assertions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DeviceState {
+    /// The active input, as the front panel would show it.
+    pub active_port: Port,
+    /// The input feeding output B, on dual-monitor switches.
+    pub output_b_port: Port,
+    /// Buzzer state.
+    pub buzzer: Buzzer,
+    /// Front display timeout.
+    pub display_timeout: DisplayTimeout,
+    /// Automatic input detection.
+    pub auto_detect: Toggle,
+    /// Keyboard/mouse pass-through, dual-monitor only.
+    pub km_passthrough: Toggle,
+    /// Which key starts a hotkey sequence, dual-monitor only.
+    pub hotkey: HotkeyTrigger,
+    /// Auto-switching, dual-monitor only.
+    pub auto_switch: Toggle,
+    /// Auto-switch dwell time, dual-monitor only.
+    pub auto_switch_interval: Option<SwitchInterval>,
+    /// Which output the USB link is attached to, dual-monitor only.
+    pub usb_output: Output,
+    /// Network settings, as stored. Changes would need a power cycle to take effect.
+    pub net: NetConfig,
+    /// How many switch commands were accepted.
+    pub switch_count: u32,
+    /// Which input feeds each output, on a matrix.
+    pub routing: Routing,
+    /// The eight stored routing presets, on a matrix.
+    ///
+    /// All start out mirrored. What a real matrix returns from a slot that was never saved is
+    /// not documented, so the emulator does not invent a distinction.
+    pub presets: [Routing; Preset::COUNT as usize],
+    /// The display timeout, on a matrix (`MT00CTXXXXNT`).
+    pub matrix_timeout: MatrixTimeout,
+    /// How many routing commands were accepted.
+    pub route_count: u32,
+}
+
+impl DeviceState {
+    /// The factory defaults from the documentation: 192.168.1.10:5000.
+    fn new() -> Self {
+        let mut net = NetConfig::default();
+        net.set(NetSetting::Ip(Ipv4Addr::new(192, 168, 1, 10)));
+        net.set(NetSetting::Port(5000));
+        net.set(NetSetting::Gateway(Ipv4Addr::new(192, 168, 1, 1)));
+        net.set(NetSetting::Mask(Ipv4Addr::new(255, 255, 255, 0)));
+
+        Self {
+            active_port: Port::FIRST,
+            output_b_port: Port::FIRST,
+            buzzer: Buzzer::Audible,
+            display_timeout: DisplayTimeout::Seconds10,
+            auto_detect: Toggle::On,
+            km_passthrough: Toggle::On,
+            hotkey: HotkeyTrigger::RightCtrl,
+            auto_switch: Toggle::Off,
+            auto_switch_interval: None,
+            usb_output: Output::A,
+            net,
+            switch_count: 0,
+            routing: Routing::MIRRORED,
+            presets: [Routing::MIRRORED; Preset::COUNT as usize],
+            matrix_timeout: MatrixTimeout::NEVER,
+            route_count: 0,
+        }
+    }
+}

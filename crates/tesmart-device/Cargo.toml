@@ -1,0 +1,21 @@
+[package]
+name = "tesmart-device"
+description = "The switch side of the TESmart protocol: a sans-IO state machine that answers like real hardware"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["tesmart", "kvm", "emulator", "no-std", "sans-io"]
+categories = ["no-std", "network-programming", "development-tools::testing"]
+
+[dependencies]
+# The only dependency, and deliberately so: this crate is the other half of the same protocol
+# rather than a layer on top of it, which is what keeps it usable as firmware.
+tesmart-proto = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

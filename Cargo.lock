@@ -360,6 +360,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesmart-device"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "tesmart-proto",
+]
+
+[[package]]
 name = "tesmart-proto"
 version = "0.1.0"
 dependencies = [

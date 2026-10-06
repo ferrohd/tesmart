@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/tesmart-device",
   "crates/tesmart-proto",
 ]
 
@@ -12,6 +13,7 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ferrohd/tesmart"
 
 [workspace.dependencies]
+tesmart-proto = { path = "crates/tesmart-proto", version = "0.1.0" }
 
 # Core
 thiserror = { version = "2.0.21", default-features = false }

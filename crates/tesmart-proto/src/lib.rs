@@ -16,6 +16,10 @@
 //! | [`model`] | model registry: ports and capabilities, with provenance |
 //! | [`engine`] | the sans-IO request/response engine |
 //!
+//! This crate is the **controller** half of the protocol. The switch half — a state machine
+//! that answers like real hardware, used both as a test double and as firmware — is
+//! `tesmart-device`, a separate crate that depends on this one.
+//!
 //! # Features
 //!
 //! | Feature | Default | Effect |

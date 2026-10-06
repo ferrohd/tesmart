@@ -319,4 +319,66 @@ impl Device {
         self.state.switch_count += 1;
         self.send_port_report(port);
     }
+
+    fn drain(&mut self) {
+        loop {
+            let action = match self.decoder.poll_chunk() {
+                None => break,
+                Some(Chunk::Frame(frame)) => Action::Frame(frame.opcode, frame.payload),
+                Some(Chunk::Ascii(text)) => Action::Ascii(ascii::parse_command(text)),
+                // A controller never sends port reports, and junk needs no answer.
+                Some(Chunk::PortReport(_) | Chunk::BadPortReport { .. } | Chunk::Discarded(_)) => {
+                    continue;
+                }
+            };
+            self.act(action);
+        }
+    }
+
+    fn act(&mut self, action: Action) {
+        match action {
+            Action::Frame(opcode, payload) => match self.config.family {
+                Family::Kvm => self.single_monitor_frame(opcode, payload),
+                Family::KvmDual => self.dual_monitor_frame(opcode, payload),
+                // Matrices have no hex protocol at all, and the SDI switch's four-byte
+                // commands are not frames this decoder produces.
+                Family::Matrix | Family::Sdi => {}
+            },
+            Action::Ascii(command) => self.ascii_command(command),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Action {
+    Frame(u8, tesmart_proto::wire::Payload),
+    Ascii(ascii::AsciiCommand),
+}
+
+/// Whether to honour a command, given what the model is known to support.
+///
+/// [`Support::Unsupported`](tesmart_proto::Support) commands are ignored, exactly as the real model
+/// ignores them. Unverified ones are honoured: emulating optimistic hardware is what lets a
+/// caller's "try it anyway" path be tested.
+fn allows(support: Support) -> bool {
+    support.is_worth_trying()
+}
+
+fn switch_from(value: u8) -> Toggle {
+    if value == 0 { Toggle::Off } else { Toggle::On }
+}
+
+/// Changes a setting just enough for a read-back to notice.
+fn garble(setting: NetSetting) -> NetSetting {
+    match setting {
+        NetSetting::Ip(addr) => NetSetting::Ip(bump(addr)),
+        NetSetting::Gateway(addr) => NetSetting::Gateway(bump(addr)),
+        NetSetting::Mask(addr) => NetSetting::Mask(bump(addr)),
+        NetSetting::Port(port) => NetSetting::Port(port.wrapping_add(1)),
+    }
+}
+
+fn bump(addr: Ipv4Addr) -> Ipv4Addr {
+    let [a, b, c, d] = addr.octets();
+    Ipv4Addr::new(a, b, c, d.wrapping_add(1))
 }

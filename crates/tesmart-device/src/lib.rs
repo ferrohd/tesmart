@@ -66,3 +66,57 @@ impl Outbox {
 /// Observed at about 48, which is why a padded address reply arrives with its `;` in a segment
 /// of its own, and why a 16x16 routing report arrives in two pieces.
 const SEGMENT: usize = 48;
+
+/// Deliberate misbehaviour, to reproduce what hardware does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Faults {
+    /// Terminate frames with this byte instead of `0xEE`. `0x16` and `0x1C` have been observed.
+    pub terminator: Option<u8>,
+
+    /// Send the `;` of an address reply as its own segment, like the real LAN bridge does.
+    pub split_ascii: bool,
+
+    /// Drop every n-th reply. Read replies are sometimes simply missing.
+    pub drop_every: Option<NonZeroU8>,
+
+    /// Prepend this many junk bytes to the next reply.
+    pub garbage_before: u8,
+
+    /// Make every n-th port report carry an impossible port index.
+    pub bogus_port_every: Option<NonZeroU8>,
+
+    /// Accept switch commands and do nothing.
+    ///
+    /// A switch that acknowledges nothing and changes nothing is indistinguishable from a
+    /// working one until the port is read back, which is exactly what makes this worth
+    /// emulating: it is the only way a verified switch can legitimately fail.
+    pub ignore_switch: bool,
+
+    /// Acknowledge a network write with `OK` and store something else.
+    ///
+    /// The reason network writes are read back before the user is told to power cycle. Models a
+    /// field the firmware silently adjusts or refuses.
+    pub garble_net_writes: bool,
+}
+
+impl Faults {
+    /// A perfectly behaved switch. Useful to isolate a failure, unlike real hardware.
+    pub const NONE: Self = Self {
+        terminator: None,
+        split_ascii: false,
+        drop_every: None,
+        garbage_before: 0,
+        bogus_port_every: None,
+        ignore_switch: false,
+        garble_net_writes: false,
+    };
+
+    /// What hardware actually does: address replies arrive in two segments.
+    pub const REALISTIC: Self = Self { split_ascii: true, ..Self::NONE };
+}
+
+impl Default for Faults {
+    fn default() -> Self {
+        Self::REALISTIC
+    }
+}

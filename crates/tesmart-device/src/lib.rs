@@ -347,6 +347,93 @@ impl Device {
             Action::Ascii(command) => self.ascii_command(command),
         }
     }
+
+    fn ascii_command(&mut self, command: ascii::AsciiCommand) {
+        // The matrix commands are gated per capability, not by the network flag.
+        if let ascii::AsciiCommand::Matrix(matrix) = command {
+            if self.config.family == Family::Matrix {
+                self.matrix_command(matrix);
+            }
+            return;
+        }
+
+        if !allows(self.config.caps.net_config) {
+            return;
+        }
+        match command {
+            ascii::AsciiCommand::Query(field) => {
+                if let Some(setting) = self.state.net.get(field) {
+                    self.send_net_reply(setting);
+                }
+            }
+            ascii::AsciiCommand::Set(setting) => {
+                let stored =
+                    if self.config.faults.garble_net_writes { garble(setting) } else { setting };
+                self.state.net.set(stored);
+                // `OK` means "stored", not "stored what you asked for".
+                self.send_text("OK");
+            }
+            // `Matrix` is handled above and `Unknown` is text no switch recognises. The
+            // wildcard rather than a list is forced by `#[non_exhaustive]`, as in
+            // `matrix_command`.
+            _ => {}
+        }
+    }
+
+    fn send_net_reply(&mut self, setting: NetSetting) {
+        if self.drop_this_reply() {
+            return;
+        }
+        // Hardware pads every field: `IP:010.000.002.012`, `PT:05000`.
+        let mut padded = ascii::encode_padded_reply(setting);
+        if self.config.faults.split_ascii {
+            // ... and sends the terminator in a segment of its own.
+            self.push(padded);
+            self.send_text(";");
+        } else {
+            use core::fmt::Write as _;
+            padded.write_str(";").expect("a padded reply plus ';' fits in one wire unit");
+            self.push(padded);
+        }
+    }
+
+    fn send_text(&mut self, text: &str) {
+        self.emit(text.as_bytes());
+    }
+
+    fn emit(&mut self, bytes: &[u8]) {
+        let garbage = self.config.faults.garbage_before;
+        if garbage > 0 {
+            let junk = [0xFF_u8; 4];
+            let len = usize::from(garbage).min(junk.len());
+            self.push(WireBytes::from_bounded(&junk[..len]));
+        }
+        self.push(WireBytes::from_bounded(bytes));
+    }
+
+    fn push(&mut self, bytes: WireBytes) {
+        self.outbox.push(bytes);
+    }
+
+    /// Hands over a long reply the way the bridge does: in segments.
+    fn push_split(&mut self, bytes: WireBytes, segment: usize) {
+        let data = bytes.as_slice();
+        if data.len() <= segment {
+            self.push(bytes);
+            return;
+        }
+        for chunk in data.chunks(segment) {
+            self.outbox.push(WireBytes::from_bounded(chunk));
+        }
+    }
+
+    fn drop_this_reply(&mut self) -> bool {
+        self.replies += 1;
+        self.config
+            .faults
+            .drop_every
+            .is_some_and(|every| self.replies.is_multiple_of(u32::from(every.get())))
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

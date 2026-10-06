@@ -120,3 +120,41 @@ impl Default for Faults {
         Self::REALISTIC
     }
 }
+
+/// What kind of switch to emulate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceConfig {
+    /// Which protocol family to speak.
+    pub family: Family,
+    /// How many inputs to pretend to have.
+    pub ports: PortCount,
+    /// How many outputs to pretend to have. One, for anything that is not a matrix.
+    pub outputs: PortCount,
+    /// Which commands to honour. Anything not available is silently ignored.
+    pub caps: Capabilities,
+    /// Which spelling of ASCII replies to produce.
+    pub dialect: AsciiDialect,
+    /// How to misbehave.
+    pub faults: Faults,
+}
+
+impl DeviceConfig {
+    /// Emulates a registry entry, including its capability gaps.
+    pub fn from_model(model: &ModelInfo) -> Self {
+        Self {
+            family: model.family,
+            ports: model.ports,
+            outputs: model.outputs,
+            caps: model.caps,
+            dialect: AsciiDialect::Captured,
+            faults: Faults::REALISTIC,
+        }
+    }
+
+    /// Replaces the fault configuration.
+    #[must_use]
+    pub const fn with_faults(mut self, faults: Faults) -> Self {
+        self.faults = faults;
+        self
+    }
+}

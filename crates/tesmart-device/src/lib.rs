@@ -512,3 +512,94 @@ pub(crate) mod test_support {
         segments(device).concat().into_iter().map(char::from).collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::{eb23, matrix as emulated_matrix, segments};
+    use super::*;
+    use tesmart_proto::model;
+
+    #[test]
+    fn honours_missing_capabilities() {
+        // the 4x1 DVI protocol has no read command at all
+        let mut device = Device::from_model(model::lookup("DKS0401A30").unwrap());
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        assert!(segments(&mut device).is_empty(), "this model never answers a read");
+    }
+
+    #[test]
+    fn answers_network_queries_padded_and_split() {
+        let mut device = eb23();
+        device.handle_input(b"IP?");
+        assert_eq!(segments(&mut device), [b"IP:192.168.001.010".to_vec(), b";".to_vec()]);
+
+        device.handle_input(b"PT?");
+        assert_eq!(segments(&mut device), [b"PT:05000".to_vec(), b";".to_vec()]);
+    }
+
+    #[test]
+    fn stores_network_writes_and_acknowledges_them() {
+        let mut device = eb23();
+        device.handle_input(b"IP:10.0.2.12;");
+        assert_eq!(segments(&mut device), [b"OK".to_vec()]);
+        assert_eq!(device.state().net.ip, Some(Ipv4Addr::new(10, 0, 2, 12)));
+    }
+
+    #[test]
+    fn a_kvm_ignores_matrix_commands_and_the_reverse() {
+        let mut kvm = eb23();
+        kvm.handle_input(b"MT00SW0102NT");
+        assert_eq!(segments(&mut kvm), [] as [std::vec::Vec<u8>; 0]);
+        assert_eq!(kvm.state().route_count, 0);
+
+        let mut matrix = emulated_matrix("HMA0404B30");
+        matrix.handle_input(&[0xAA, 0xBB, 0x03, 0x01, 0x02, 0xEE]);
+        assert_eq!(matrix.state().active_port, Port::FIRST, "a matrix has no switch opcode");
+        assert_eq!(segments(&mut matrix), [] as [std::vec::Vec<u8>; 0]);
+    }
+
+    #[test]
+    fn applies_the_configured_faults() {
+        let mut device = eb23();
+        device.set_faults(Faults {
+            terminator: Some(0x16),
+            drop_every: NonZeroU8::new(2),
+            garbage_before: 2,
+            ..Faults::NONE
+        });
+
+        // first read: garbage prefix and a 0x16 terminator
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        assert_eq!(
+            segments(&mut device),
+            [std::vec![0xFF, 0xFF], std::vec![0xAA, 0xBB, 0x03, 0x11, 0x00, 0x16]]
+        );
+
+        // second read: dropped entirely
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        assert_eq!(segments(&mut device).len(), 0);
+    }
+
+    #[test]
+    fn bogus_port_reports_are_deterministic() {
+        let mut device = eb23();
+        device.set_faults(Faults { bogus_port_every: NonZeroU8::new(1), ..Faults::NONE });
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        let [report] = segments(&mut device).try_into().unwrap();
+        assert_eq!(report[4], 0x1F, "an index no switch could mean");
+    }
+
+    #[test]
+    fn a_garbled_write_is_acknowledged_anyway() {
+        let mut device = eb23();
+        device.set_faults(Faults { garble_net_writes: true, ..Faults::NONE });
+
+        device.handle_input(b"IP:10.0.2.12;");
+        assert_eq!(segments(&mut device), [b"OK".to_vec()], "OK means stored, not correct");
+        assert_eq!(
+            device.state().net.ip,
+            Some(Ipv4Addr::new(10, 0, 2, 13)),
+            "which is why a write has to be read back"
+        );
+    }
+}

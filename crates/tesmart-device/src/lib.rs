@@ -474,3 +474,41 @@ fn bump(addr: Ipv4Addr) -> Ipv4Addr {
     let [a, b, c, d] = addr.octets();
     Ipv4Addr::new(a, b, c, d.wrapping_add(1))
 }
+
+/// Helpers the per-family test modules share.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::{Device, Faults};
+    use tesmart_proto::model;
+
+    /// A 16-port EB23, the most capable KVM in the registry.
+    pub(crate) fn eb23() -> Device {
+        device_for("HKS1601-EB23")
+    }
+
+    /// An emulated registry model, with the faults real hardware has.
+    pub(crate) fn device_for(key: &str) -> Device {
+        Device::from_model(model::lookup(key).unwrap_or_else(|| panic!("unknown model {key}")))
+    }
+
+    /// An emulated matrix that behaves perfectly, so routing assertions stay readable.
+    pub(crate) fn matrix(key: &str) -> Device {
+        let mut device = device_for(key);
+        device.set_faults(Faults::NONE);
+        device
+    }
+
+    /// Everything the switch has queued, one entry per segment it would write.
+    pub(crate) fn segments(device: &mut Device) -> std::vec::Vec<std::vec::Vec<u8>> {
+        let mut out = std::vec::Vec::new();
+        while let Some(segment) = device.poll_transmit() {
+            out.push(segment.as_slice().to_vec());
+        }
+        out
+    }
+
+    /// The queued segments joined back into the string a controller would see.
+    pub(crate) fn text(device: &mut Device) -> std::string::String {
+        segments(device).concat().into_iter().map(char::from).collect()
+    }
+}

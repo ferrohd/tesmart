@@ -129,3 +129,99 @@ impl Device {
         ]);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Faults;
+    use crate::test_support::{eb23, segments};
+    use tesmart_proto::model;
+
+    #[test]
+    fn switches_and_reports_the_port_zero_based() {
+        let mut device = eb23();
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x01, 0x10, 0xEE]);
+        assert_eq!(device.state().active_port.get(), 16);
+        assert_eq!(device.state().switch_count, 1);
+
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        assert_eq!(segments(&mut device), [[0xAA, 0xBB, 0x03, 0x11, 0x0F, 0xEE]]);
+    }
+
+    #[test]
+    fn ignores_ports_it_does_not_have() {
+        let mut device = Device::from_model(model::lookup("DKS0401A30").unwrap());
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x01, 0x08, 0xEE]);
+        assert_eq!(device.state().active_port, Port::FIRST, "a 4-port switch has no PC8");
+    }
+
+    #[test]
+    fn a_switch_that_ignores_commands_still_looks_normal() {
+        let mut device = eb23();
+        device.set_faults(Faults { ignore_switch: true, ..Faults::NONE });
+
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x01, 0x05, 0xEE]);
+        assert_eq!(segments(&mut device).len(), 0, "a switch command is never acknowledged");
+        assert_eq!(device.state().active_port, Port::FIRST, "but nothing happened");
+
+        // the only way to find out is to read the port back
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        assert_eq!(segments(&mut device), [[0xAA, 0xBB, 0x03, 0x11, 0x00, 0xEE]]);
+    }
+
+    #[test]
+    fn force_port_changes_the_state_silently() {
+        let mut device = eb23();
+        device.set_faults(Faults::NONE);
+        device.force_port(Port::new(7).unwrap());
+
+        assert_eq!(device.state().active_port.get(), 7);
+        assert_eq!(segments(&mut device).len(), 0, "no report: nothing to notice");
+    }
+
+    #[test]
+    fn front_panel_changes_push_an_unsolicited_report() {
+        let mut device = eb23();
+        device.set_faults(Faults::NONE);
+        device.press_button(Port::new(5).unwrap());
+        assert_eq!(device.state().active_port.get(), 5);
+        assert_eq!(segments(&mut device), [[0xAA, 0xBB, 0x03, 0x11, 0x04, 0xEE]]);
+    }
+
+    #[test]
+    fn dual_monitor_steps_wrap_around() {
+        let mut device = Device::from_model(model::lookup("dual-4port").unwrap());
+        device.set_faults(Faults::NONE);
+
+        // output A: step down from PC1 wraps to PC4
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x03, 0x00, 0xEE]);
+        assert_eq!(device.state().active_port.get(), 4);
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x03, 0x01, 0xEE]);
+        assert_eq!(device.state().active_port.get(), 1);
+
+        // output B is independent
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x04, 0x01, 0xEE]);
+        assert_eq!(device.state().output_b_port.get(), 2);
+        assert_eq!(device.state().active_port.get(), 1);
+
+        // inverted pass-through values
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x06, 0x01, 0xEE]);
+        assert_eq!(device.state().km_passthrough, Toggle::Off);
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x06, 0x00, 0xEE]);
+        assert_eq!(device.state().km_passthrough, Toggle::On);
+
+        // the seven-byte interval frame
+        device.handle_input(&[0xAA, 0xBB, 0x04, 0x09, 0x00, 0x1E, 0xEE]);
+        assert_eq!(device.state().auto_switch_interval.map(SwitchInterval::as_secs), Some(30));
+
+        // and no reply to anything, ever
+        assert_eq!(segments(&mut device).len(), 0);
+    }
+
+    #[test]
+    fn a_dual_monitor_switch_never_answers_a_read() {
+        let mut device = Device::from_model(model::lookup("dual-4port").unwrap());
+        device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+        assert_eq!(segments(&mut device).len(), 0);
+    }
+}

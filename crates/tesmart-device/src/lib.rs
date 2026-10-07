@@ -8,6 +8,7 @@
 #![cfg_attr(not(test), no_std)]
 // `must_use_candidate` fires on nearly every accessor in a crate made of value types.
 #![allow(clippy::must_use_candidate)]
+mod matrix;
 
 use core::net::Ipv4Addr;
 use core::num::NonZeroU8;
@@ -20,6 +21,8 @@ use tesmart_proto::value::{
     SwitchInterval, Toggle,
 };
 use tesmart_proto::wire::{AsciiDialect, Chunk, DecodeMode, StreamDecoder, WireBytes, ascii};
+
+pub use crate::matrix::Routing;
 
 /// How many reply segments can be queued before the oldest is dropped.
 const OUTBOX: usize = 8;

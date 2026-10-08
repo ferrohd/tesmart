@@ -292,3 +292,69 @@ fn a_front_panel_change_during_an_exchange_is_reported_separately() {
         "{events:?}"
     );
 }
+
+proptest! {
+    /// Any port survives a write followed by a read, on any port count.
+    #[test]
+    fn port_numbers_survive_the_asymmetric_encoding((ports, human) in a_switch_and_one_of_its_ports()) {
+        let model = model::lookup(match ports {
+            4 => "HKS401-M24",
+            8 => "HKS801-EB23",
+            _ => "HKS1601-EB23",
+        }).unwrap();
+        let device = Device::new(DeviceConfig::from_model(model).with_faults(Faults::NONE));
+        let mut link = Link::new(Kvm, device, Policy::IMMEDIATE);
+
+        link.run(Request::Switch(port(human))).unwrap();
+        let events = link.run(Request::ReadActivePort).unwrap();
+        prop_assert_eq!(completed(&events), Some(Response::ActivePort(port(human))));
+    }
+
+    /// Whatever the fault configuration, an exchange either completes with the right kind of
+    /// answer or fails cleanly. It never hangs and never answers the wrong question.
+    #[test]
+    fn faults_never_produce_a_wrong_answer(
+        drop_every in prop::option::of(1u8..=4),
+        terminator in prop::option::of(prop::sample::select(vec![0x16u8, 0x1C, 0x00])),
+        garbage_before in 0u8..=4,
+        bogus_port_every in prop::option::of(1u8..=4),
+        split_ascii in any::<bool>(),
+    ) {
+        let faults = Faults {
+            terminator,
+            split_ascii,
+            drop_every: drop_every.and_then(NonZeroU8::new),
+            garbage_before,
+            bogus_port_every: bogus_port_every.and_then(NonZeroU8::new),
+            // Not faults of the link: a switch that ignores commands or garbles what it stores
+            // is tested on its own, where the expected outcome is different.
+            ignore_switch: false,
+            garble_net_writes: false,
+        };
+        let mut link = eb23(faults);
+        link.engine.set_policy(Policy::IMMEDIATE.with_max_retries(8));
+
+        for request in [
+            Request::Switch(port(6)),
+            Request::ReadActivePort,
+            Request::NetQuery(NetField::Mask),
+            Request::NetSet(NetSetting::Port(5000)),
+        ] {
+            let events = link.run(request).unwrap();
+            for event in &events {
+                match event {
+                    Event::Completed { response, .. } => {
+                        let expected = request.expects().unwrap_or(ResponseKind::Accepted);
+                        prop_assert_eq!(response.kind(), expected, "{:?}", request);
+                    }
+                    Event::Failed { error, .. } => {
+                        let timed_out = matches!(error, ExchangeError::Timeout { .. });
+                        prop_assert!(timed_out);
+                    }
+                    // diagnostics are always allowed
+                    _ => {}
+                }
+            }
+        }
+    }
+}

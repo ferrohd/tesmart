@@ -206,3 +206,89 @@ fn every_dual_monitor_command_reaches_the_switch() {
     assert_eq!(state.auto_switch, Toggle::On);
     assert_eq!(state.auto_switch_interval.map(SwitchInterval::as_secs), Some(30));
 }
+
+#[test]
+fn a_read_survives_a_dropped_reply() {
+    let mut link = eb23(Faults { drop_every: NonZeroU8::new(2), ..Faults::REALISTIC });
+
+    link.run(Request::Switch(port(9))).unwrap();
+    link.settle();
+
+    // the emulator swallows every second reply; the retry budget covers it
+    for _ in 0..4 {
+        let events = link.run(Request::ReadActivePort).unwrap();
+        assert_eq!(completed(&events), Some(Response::ActivePort(port(9))));
+        link.settle();
+    }
+}
+
+#[test]
+fn a_read_survives_garbage_and_bad_terminators() {
+    let mut link = eb23(Faults {
+        terminator: Some(0x1C),
+        garbage_before: 3,
+        bogus_port_every: NonZeroU8::new(3),
+        ..Faults::REALISTIC
+    });
+
+    link.run(Request::Switch(port(4))).unwrap();
+
+    for _ in 0..6 {
+        link.settle();
+        let events = link.run(Request::ReadActivePort).unwrap();
+        assert_eq!(completed(&events), Some(Response::ActivePort(port(4))), "{events:?}");
+    }
+}
+
+#[test]
+fn a_read_fails_cleanly_when_every_reply_is_lost() {
+    let mut link = eb23(Faults { drop_every: NonZeroU8::new(1), ..Faults::NONE });
+
+    let events = link.run(Request::ReadActivePort).unwrap();
+    assert!(
+        matches!(
+            events.as_slice(),
+            [Event::Failed { error: ExchangeError::Timeout { attempts: 6 }, .. }]
+        ),
+        "{events:?}"
+    );
+}
+
+#[test]
+fn a_model_without_a_read_command_times_out_rather_than_lying() {
+    // DKS0401A30 documents four switch commands and nothing else
+    let model = model::lookup("DKS0401A30").unwrap();
+    let device = Device::new(DeviceConfig::from_model(model).with_faults(Faults::NONE));
+    let mut link = Link::new(Kvm, device, Policy::DEFAULT);
+
+    link.run(Request::Switch(port(3))).unwrap();
+    assert_eq!(link.device.state().active_port.get(), 3);
+    link.settle();
+
+    let events = link.run(Request::ReadActivePort).unwrap();
+    assert!(
+        matches!(events.as_slice(), [Event::Failed { .. }]),
+        "a switch that cannot read must not appear to answer: {events:?}"
+    );
+}
+
+#[test]
+fn a_front_panel_change_during_an_exchange_is_reported_separately() {
+    let mut link = eb23(Faults::NONE);
+
+    link.engine.submit(Request::ReadActivePort, link.now).unwrap();
+    let transmit = link.engine.poll_transmit(link.now).unwrap();
+    link.device.handle_input(&transmit);
+
+    // someone presses a button before the reply is read
+    link.device.press_button(port(12));
+
+    let events = link.pump();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            Event::Completed { response: Response::ActivePort(_), .. }
+        )),
+        "{events:?}"
+    );
+}

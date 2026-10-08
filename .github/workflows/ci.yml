@@ -46,6 +46,28 @@ jobs:
             default)             cargo test --workspace ;;
           esac
 
+  # Both halves of the protocol claim to be sans-IO and allocation free. A bare-metal target
+  # with no `std` at all is the only honest way to check that claim.
+  #
+  # The `tesmart-device` build is load-bearing, not decorative: the whole reason the switch side
+  # is its own crate rather than a feature of `tesmart-proto` is that it can run as firmware.
+  # If this step is ever dropped, that claim quietly stops being true.
+  no-std:
+    name: no_std build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabi
+      - uses: Swatinem/rust-cache@v2
+      - name: the controller side
+        run: cargo build -p tesmart-proto --target thumbv7em-none-eabi
+      - name: the controller side, with serde
+        run: cargo build -p tesmart-proto --features serde --target thumbv7em-none-eabi
+      - name: the switch side
+        run: cargo build -p tesmart-device --target thumbv7em-none-eabi
+
   msrv:
     name: minimum supported Rust version
     runs-on: ubuntu-latest
@@ -70,5 +92,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p tesmart-proto --all-features --test decoder
+        env:
+          PROPTEST_CASES: "8192"
+      # Engine against device: the test that would catch an inverted ±1, a length byte computed
+      # from the wrong end, or a retry budget that cannot survive a dropped reply.
+      - run: cargo test -p tesmart-device --test roundtrip
         env:
           PROPTEST_CASES: "8192"

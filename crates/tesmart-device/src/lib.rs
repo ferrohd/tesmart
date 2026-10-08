@@ -4,6 +4,56 @@
 //! This crate is the other end of the same wire — bytes in, bytes out, no IO and no clock —
 //! so the two together describe the whole protocol without anything having to be plugged in.
 //!
+//! Two quite different things use it:
+//!
+//! **A test double.** [`tesmart-sim`] serves a [`Device`] over TCP or an in-process pipe, which
+//! is how everything above the protocol is tested: the parts that only show up on real units
+//! are reproducible on demand. See [`Faults`].
+//!
+//! **A real device.** This crate is `no_std` with no allocator and one dependency, and it is
+//! built for `thumbv7em-none-eabi` in CI. A microcontroller running it answers
+//! `AA BB 03 11 XX EE` like the genuine article, so software written for TESmart hardware —
+//! PiKVM, Home Assistant, the Windows controller — drives it unchanged. Hardware would
+//! configure [`Faults::NONE`].
+//!
+//! Capabilities are honoured either way: configured from `DKS0401A30`, a device ignores a
+//! read-port request exactly as the real model does, which is what makes capability gating
+//! testable rather than theoretical.
+//!
+//! ```
+//! use tesmart_device::{Device, DeviceConfig};
+//! use tesmart_proto::model;
+//!
+//! let model = model::lookup("HKS1601-EB23").unwrap();
+//! let mut device = Device::new(DeviceConfig::from_model(model));
+//!
+//! // switch to PC2, then ask which port is active
+//! device.handle_input(&[0xAA, 0xBB, 0x03, 0x01, 0x02, 0xEE]);
+//! device.handle_input(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]);
+//!
+//! assert_eq!(device.state().active_port.get(), 2);
+//! // the reply carries a 0-based port
+//! assert_eq!(
+//!     device.poll_transmit().unwrap().as_slice(),
+//!     &[0xAA, 0xBB, 0x03, 0x11, 0x01, 0xEE]
+//! );
+//! ```
+//!
+//! # Layout
+//!
+//! | Module | Content |
+//! | --- | --- |
+//! | this one | the device, its configuration, its state and the shared plumbing |
+//! | `kvm` | the hex frame handlers for families A and A' |
+//! | `matrix` | family B: the routing table, presets and the `LINK:` report |
+//!
+//! The two family modules are private: they add behaviour to [`Device`] rather than API of
+//! their own, so the only public sign of them is [`Routing`].
+//!
+//! Family C (the SDI switch) is not implemented, because there is nothing to implement: it
+//! never sends a byte, so the only observable behaviour is the four bytes the controller
+//! writes, which [`tesmart_proto`]'s own tests already pin down.
+//!
 //! [`tesmart-sim`]: https://crates.io/crates/tesmart-sim
 #![cfg_attr(not(test), no_std)]
 // `must_use_candidate` fires on nearly every accessor in a crate made of value types.

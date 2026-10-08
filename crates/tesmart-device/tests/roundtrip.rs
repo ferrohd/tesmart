@@ -96,3 +96,113 @@ fn completed(events: &[Event]) -> Option<Response> {
         _ => None,
     })
 }
+
+#[test]
+fn switching_then_reading_agrees_with_the_switch() {
+    let mut link = eb23(Faults::REALISTIC);
+
+    for human in 1..=16 {
+        link.settle();
+        link.run(Request::Switch(port(human))).unwrap();
+        assert_eq!(link.device.state().active_port.get(), human);
+
+        link.settle();
+        let events = link.run(Request::ReadActivePort).unwrap();
+        assert_eq!(
+            completed(&events),
+            Some(Response::ActivePort(port(human))),
+            "port {human} did not survive the write/read asymmetry"
+        );
+    }
+}
+
+#[test]
+fn the_network_round_trip_normalises_padding() {
+    let mut link = eb23(Faults::REALISTIC);
+
+    // the emulator answers with the documented zero padding, split across two segments
+    let events = link.run(Request::NetQuery(NetField::Ip)).unwrap();
+    assert_eq!(
+        completed(&events),
+        Some(Response::Net(NetSetting::Ip("192.168.1.10".parse().unwrap())))
+    );
+
+    link.settle();
+    let events = link.run(Request::NetSet(NetSetting::Ip("10.0.2.12".parse().unwrap()))).unwrap();
+    assert_eq!(completed(&events), Some(Response::Ack));
+
+    link.settle();
+    let events = link.run(Request::NetQuery(NetField::Ip)).unwrap();
+    assert_eq!(
+        completed(&events),
+        Some(Response::Net(NetSetting::Ip("10.0.2.12".parse().unwrap())))
+    );
+}
+
+#[test]
+fn every_family_a_command_reaches_the_switch() {
+    let mut link = eb23(Faults::NONE);
+
+    let requests = [
+        Request::Switch(port(5)),
+        Request::Buzzer(Buzzer::Muted),
+        Request::DisplayTimeout(DisplayTimeout::Seconds30),
+        Request::AutoInputDetect(Toggle::Off),
+        Request::ReadActivePort,
+        Request::NetQuery(NetField::Gateway),
+        Request::NetSet(NetSetting::Port(5001)),
+    ];
+
+    for request in requests {
+        link.settle();
+        let events = link.run(request).unwrap();
+        let response =
+            completed(&events).unwrap_or_else(|| panic!("{request} produced {events:?}"));
+
+        match request.expects() {
+            Some(expected) => assert_eq!(response.kind(), expected, "{request}"),
+            None => assert_eq!(response, Response::Accepted, "{request}"),
+        }
+    }
+
+    let state = link.device.state();
+    assert_eq!(state.active_port.get(), 5);
+    assert_eq!(state.buzzer, Buzzer::Muted);
+    assert_eq!(state.display_timeout, DisplayTimeout::Seconds30);
+    assert_eq!(state.auto_detect, Toggle::Off);
+    assert_eq!(state.net.port, Some(5001));
+}
+
+#[test]
+fn every_dual_monitor_command_reaches_the_switch() {
+    let model = model::lookup("dual-4port").unwrap();
+    let device = Device::new(DeviceConfig::from_model(model).with_faults(Faults::NONE));
+    let mut link = Link::new(KvmDual, device, Policy::DEFAULT);
+
+    let requests = [
+        Request::Switch(port(2)),
+        Request::StepOutput { output: Output::A, step: Step::Next },
+        Request::StepOutput { output: Output::B, step: Step::Previous },
+        Request::MoveUsb,
+        Request::KmPassthrough(Toggle::Off),
+        Request::HotkeyTrigger(HotkeyTrigger::ScrollLock),
+        Request::AutoSwitch(Toggle::On),
+        Request::AutoSwitchInterval(SwitchInterval::from_secs(30).unwrap()),
+        Request::Buzzer(Buzzer::Muted),
+    ];
+
+    for request in requests {
+        link.settle();
+        let events = link.run(request).unwrap();
+        assert_eq!(completed(&events), Some(Response::Accepted), "{request}");
+    }
+
+    let state = link.device.state();
+    assert_eq!(state.active_port.get(), 3, "PC2 then one step up");
+    assert_eq!(state.output_b_port.get(), 4, "one step down from PC1 wraps");
+    assert_eq!(state.usb_output, Output::B);
+    assert_eq!(state.km_passthrough, Toggle::Off);
+    assert_eq!(state.hotkey, HotkeyTrigger::ScrollLock);
+    assert_eq!(state.auto_switch, Toggle::On);
+    assert_eq!(state.auto_switch_interval.map(SwitchInterval::as_secs), Some(30));
+}

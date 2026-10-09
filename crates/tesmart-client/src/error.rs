@@ -72,3 +72,84 @@ fn describe(kind: Option<RequestKind>) -> &'static str {
         None => "the raw command",
     }
 }
+
+/// A failed operation.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OpError {
+    /// The exchange underneath failed.
+    #[error(transparent)]
+    Client(#[from] ClientError),
+
+    /// A port number that does not exist on this switch.
+    #[error("port {port} does not exist on a {ports}-port switch")]
+    PortOutOfRange {
+        /// The port that was asked for.
+        port: Port,
+        /// How many the switch has.
+        ports: PortCount,
+    },
+
+    /// An output number that does not exist on this matrix.
+    #[error("output {output} does not exist on a matrix with {outputs} output(s)")]
+    OutputOutOfRange {
+        /// The output that was asked for.
+        output: Port,
+        /// How many the matrix has.
+        outputs: PortCount,
+    },
+
+    /// The command does not exist on this model, or is known not to work.
+    #[error("{kind} is {support} on {}", model.unwrap_or("this switch"))]
+    Unsupported {
+        /// The command.
+        kind: RequestKind,
+        /// What the registry says about it.
+        support: Support,
+        /// The model, when it came from the registry.
+        model: Option<&'static str>,
+    },
+
+    /// The switch was asked to change input and reports a different one.
+    ///
+    /// The one case where failing loudly is right: the command was accepted, the switch
+    /// answered, and the answer is wrong.
+    #[error("asked for port {expected} but the switch reports port {found}")]
+    VerificationFailed {
+        /// The port that was requested.
+        expected: Port,
+        /// The port the switch reports.
+        found: Port,
+    },
+
+    /// The switch answered something that does not belong to the question.
+    ///
+    /// Only reachable if the switch is not what it claims to be, such as a matrix answering a
+    /// KVM command.
+    #[error("the switch answered with {kind}, which does not answer {asked}")]
+    UnexpectedResponse {
+        /// What came back.
+        kind: ResponseKind,
+        /// What was asked.
+        asked: RequestKind,
+    },
+}
+
+impl OpError {
+    /// A stable classification, for exit codes and for deciding what to retry.
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::Client(ClientError::Transport(_)) => ErrorClass::Transport,
+            Self::Client(ClientError::Timeout { .. } | ClientError::NoReply { .. }) => {
+                ErrorClass::Timeout
+            }
+            Self::Client(ClientError::Rejected(_)) | Self::Unsupported { .. } => {
+                ErrorClass::Unsupported
+            }
+            Self::Client(ClientError::Aborted | ClientError::Exchange(_))
+            | Self::UnexpectedResponse { .. } => ErrorClass::Protocol,
+            Self::PortOutOfRange { .. } | Self::OutputOutOfRange { .. } => ErrorClass::Usage,
+            Self::VerificationFailed { .. } => ErrorClass::Verification,
+        }
+    }
+}

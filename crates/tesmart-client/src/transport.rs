@@ -51,3 +51,39 @@ pub trait Connector: fmt::Display {
         ConnectionPolicy::PerCommand
     }
 }
+
+/// When connections are opened and closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConnectionPolicy {
+    /// Open before each command, close after it.
+    ///
+    /// The default, and what PiKVM does. A closed connection also stops the switch pushing
+    /// unsolicited port reports, which keeps the line quiet between commands.
+    #[default]
+    PerCommand,
+
+    /// Keep one connection open.
+    ///
+    /// Needed to observe port changes made from the front panel, and cheaper for a burst of
+    /// commands or for a transport whose connections are expensive to establish.
+    Persistent,
+}
+
+/// Every reference to a connector is a connector.
+///
+/// Lets a caller keep ownership of its connector and still hand one to a session.
+impl<C: Connector + ?Sized + Sync> Connector for &C {
+    type Io = C::Io;
+
+    fn connect(&self) -> impl Future<Output = Result<Self::Io, TransportError>> + Send {
+        (**self).connect()
+    }
+
+    fn kind(&self) -> TransportKind {
+        (**self).kind()
+    }
+
+    fn preferred_policy(&self) -> ConnectionPolicy {
+        (**self).preferred_policy()
+    }
+}

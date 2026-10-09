@@ -153,3 +153,44 @@ impl OpError {
         }
     }
 }
+
+/// What kind of failure an [`OpError`] is, independent of its details.
+///
+/// Exists so a command line tool can map failures to exit codes with one `match` that will not
+/// drift as variants are added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ErrorClass {
+    /// The request was impossible: a port that does not exist, a command for another family.
+    Usage,
+    /// The link failed.
+    Transport,
+    /// Nothing came back in time.
+    Timeout,
+    /// This switch cannot do that.
+    Unsupported,
+    /// The switch did something, and it was not what was asked.
+    Verification,
+    /// The switch said something that makes no sense.
+    Protocol,
+}
+
+impl ErrorClass {
+    /// A stable, hyphenated name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Usage => "usage",
+            Self::Transport => "transport",
+            Self::Timeout => "timeout",
+            Self::Unsupported => "unsupported",
+            Self::Verification => "verification",
+            Self::Protocol => "protocol",
+        }
+    }
+}
+
+impl core::fmt::Display for ErrorClass {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
+    }
+}

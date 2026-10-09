@@ -7,3 +7,7 @@
 //! Transports are not here. A transport is one implementation of [`Connector`], which is why
 //! `tesmart-tcp` and `tesmart-serial` contain no protocol or operation code at all.
 #![allow(clippy::must_use_candidate)]
+
+mod error;
+
+pub use crate::error::{ClientError, ErrorClass, OpError};

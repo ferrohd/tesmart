@@ -1,0 +1,21 @@
+[package]
+name = "tesmart-client"
+description = "Async driver and operations for TESmart KVM switches and HDMI matrices, over any byte stream"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["tesmart", "kvm", "tokio", "async"]
+categories = ["network-programming", "asynchronous"]
+
+[dependencies]
+tesmart-proto = { workspace = true }
+# `macros` is for `tokio::select!` in the driver loop. Still no `net` and no `rt`: this crate
+# opens nothing and spawns nothing.
+tokio = { workspace = true, features = ["io-util", "time", "macros"] }
+tracing = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

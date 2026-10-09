@@ -194,3 +194,29 @@ impl core::fmt::Display for ErrorClass {
         f.write_str(self.name())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages_name_the_request() {
+        let typed = ClientError::NoReply { kind: Some(RequestKind::ReadActivePort), attempts: 6 };
+        assert_eq!(
+            typed.to_string(),
+            "the switch did not reply to read-active-port after 6 attempt(s)"
+        );
+
+        let raw = ClientError::NoReply { kind: None, attempts: 1 };
+        assert_eq!(
+            raw.to_string(),
+            "the switch did not reply to the raw command after 1 attempt(s)"
+        );
+    }
+
+    #[test]
+    fn unsupported_commands_are_not_transient() {
+        assert!(!ClientError::Aborted.is_transient());
+        assert!(ClientError::Timeout { after: Duration::from_secs(1) }.is_transient());
+    }
+}

@@ -169,3 +169,41 @@ impl fmt::Display for PortCountProbe {
         Ok(())
     }
 }
+
+/// The switch's network settings, as read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetReport {
+    /// The values that came back.
+    pub config: NetConfig,
+    /// Fields the switch did not answer for.
+    pub missing: Vec<NetField>,
+    /// Anything worth telling the user.
+    pub warnings: Vec<Warning>,
+}
+
+impl NetReport {
+    /// Whether all four fields were read.
+    pub fn is_complete(&self) -> bool {
+        self.missing.is_empty() && self.config.is_complete()
+    }
+}
+
+/// The result of writing network settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetOutcome {
+    /// What was asked for.
+    pub requested: Vec<NetSetting>,
+    /// What the switch reported afterwards.
+    pub applied: NetConfig,
+    /// Fields whose read-back does not match what was written.
+    pub mismatched: Vec<NetField>,
+    /// Anything worth telling the user. Always includes the power-cycle warning.
+    pub warnings: Vec<Warning>,
+}
+
+impl NetOutcome {
+    /// Whether every written field read back as written.
+    pub fn is_consistent(&self) -> bool {
+        self.mismatched.is_empty()
+    }
+}

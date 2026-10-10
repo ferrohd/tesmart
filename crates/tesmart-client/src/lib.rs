@@ -9,7 +9,9 @@
 #![allow(clippy::must_use_candidate)]
 
 mod error;
+mod spec;
 mod transport;
 
 pub use crate::error::{ClientError, ErrorClass, OpError};
+pub use crate::spec::ModelSpec;
 pub use crate::transport::{ConnectionPolicy, Connector, TransportError, TransportKind};

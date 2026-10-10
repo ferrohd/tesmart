@@ -108,3 +108,64 @@ impl fmt::Display for Unverified {
         }
     }
 }
+
+/// A command that the protocol defines no reply to.
+///
+/// The bytes reached the transport. The switch does not acknowledge buzzer, display timeout or
+/// auto-detect changes, and none of them can be read back on any series, so this is the most
+/// that can honestly be reported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sent {
+    /// What was sent.
+    pub kind: RequestKind,
+    /// What is known about this command on this model.
+    pub support: Support,
+    /// Anything worth telling the user.
+    pub warnings: Vec<Warning>,
+}
+
+impl fmt::Display for Sent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} sent, state cannot be read back", self.kind)
+    }
+}
+
+/// What trying every input discovered about how many there are.
+///
+/// Produced by [`Kvm::probe_port_count`](crate::Kvm::probe_port_count), which switches inputs to
+/// find out, so this carries whether the original input was put back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortCountProbe {
+    /// The highest input the switch accepted, if any did.
+    ///
+    /// `None` means no candidate read back as itself: either the switch ignores switching
+    /// altogether or it stopped answering partway through.
+    pub found: Option<Port>,
+    /// How many inputs the registry or the caller claimed.
+    pub claimed: PortCount,
+    /// The input that was active before probing started.
+    pub original: Port,
+    /// Whether the original input was confirmed restored afterwards.
+    pub restored: bool,
+}
+
+impl PortCountProbe {
+    /// Whether the probe agrees with what was claimed.
+    pub fn agrees(&self) -> bool {
+        self.found.is_some_and(|found| found.get() == self.claimed.get())
+    }
+}
+
+impl fmt::Display for PortCountProbe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.found {
+            Some(found) if self.agrees() => write!(f, "{found} inputs, as expected"),
+            Some(found) => write!(f, "{found} inputs, but {} were expected", self.claimed),
+            None => f.write_str("no input could be confirmed"),
+        }?;
+        if !self.restored {
+            write!(f, "; the original input {} could not be confirmed restored", self.original)?;
+        }
+        Ok(())
+    }
+}

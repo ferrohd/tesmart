@@ -103,3 +103,43 @@ impl fmt::Display for ModelSpec {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tesmart_proto::model;
+
+    #[test]
+    fn registry_entries_keep_their_provenance() {
+        let spec = ModelSpec::from_model(model::lookup("HKS801-P23").unwrap());
+        assert_eq!(spec.support(RequestKind::ReadActivePort), Support::Unverified);
+        assert!(!spec.supports(RequestKind::ReadActivePort));
+        assert!(spec.may_attempt(RequestKind::ReadActivePort));
+        assert_eq!(spec.to_string(), "HKS801-P23 (kvm, 8 ports)");
+    }
+
+    #[test]
+    fn an_override_records_what_you_have_tested() {
+        let spec = ModelSpec::from_model(model::lookup("HKS801-P23").unwrap())
+            .with_capability(RequestKind::ReadActivePort, Support::FieldTested);
+        assert!(spec.supports(RequestKind::ReadActivePort));
+    }
+
+    #[test]
+    fn an_override_cannot_invent_a_command_the_family_lacks() {
+        let spec = ModelSpec::from_model(model::lookup("dual-4port").unwrap())
+            .with_capability(RequestKind::ReadActivePort, Support::Documented);
+        assert_eq!(
+            spec.support(RequestKind::ReadActivePort),
+            Support::Unsupported,
+            "the dual-monitor family has no read command to enable"
+        );
+    }
+
+    #[test]
+    fn unknown_switches_start_unverified() {
+        let spec = ModelSpec::custom(Family::Kvm, PortCount::new(8).unwrap());
+        assert_eq!(spec.support(RequestKind::Switch), Support::Unverified);
+        assert_eq!(spec.to_string(), "unknown kvm switch (8 ports)");
+    }
+}

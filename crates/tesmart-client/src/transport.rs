@@ -87,3 +87,41 @@ impl<C: Connector + ?Sized + Sync> Connector for &C {
         (**self).preferred_policy()
     }
 }
+
+/// What sort of link a [`Connector`] produces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum TransportKind {
+    /// A TCP connection to the switch's LAN port, which is a serial-to-Ethernet bridge.
+    Tcp,
+    /// A serial line, 9600 8N1.
+    Serial,
+    /// An emulated switch.
+    Simulated,
+}
+
+impl TransportKind {
+    /// Whether the ASCII network configuration commands are known to work on this transport.
+    ///
+    /// Over RS232 they are disputed: TESmart's own IP-change guide says KVM firmware "does not
+    /// support IP configuration via RS232", while `bbeaudoin` and `luborpetr` report sending
+    /// them over serial successfully.
+    pub const fn net_config_is_documented(self) -> bool {
+        matches!(self, Self::Tcp | Self::Simulated)
+    }
+
+    /// A stable, hyphenated name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Serial => "serial",
+            Self::Simulated => "simulated",
+        }
+    }
+}
+
+impl fmt::Display for TransportKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}

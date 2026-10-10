@@ -207,3 +207,91 @@ impl NetOutcome {
         self.mismatched.is_empty()
     }
 }
+
+/// A matrix's routing, as reported.
+///
+/// Unlike every KVM setting, this one can be read back, which is what makes
+/// [`Matrix::route`](crate::Matrix::route) the only verifiable write in the whole protocol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutingReport {
+    /// Which input feeds each output, as `(output, input)` pairs.
+    pub links: Vec<(Port, Port)>,
+    /// Anything worth telling the user.
+    pub warnings: Vec<Warning>,
+}
+
+impl RoutingReport {
+    pub(crate) fn new(reply: &RoutingReply, warnings: Vec<Warning>) -> Self {
+        Self { links: reply.entries().to_vec(), warnings }
+    }
+
+    /// The input feeding one output, if the matrix mentioned it.
+    pub fn input_for(&self, output: Port) -> Option<Port> {
+        self.links.iter().find(|(out, _)| *out == output).map(|(_, input)| *input)
+    }
+
+    /// Whether every output is fed by the input with the same number.
+    pub fn is_mirrored(&self) -> bool {
+        !self.links.is_empty() && self.links.iter().all(|(out, input)| out == input)
+    }
+}
+
+impl fmt::Display for RoutingReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.links.is_empty() {
+            return f.write_str("no routing reported");
+        }
+        for (index, (output, input)) in self.links.iter().enumerate() {
+            if index > 0 {
+                f.write_str(", ")?;
+            }
+            write!(f, "output {output} <- input {input}")?;
+        }
+        Ok(())
+    }
+}
+
+/// The result of asking a matrix to change its routing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RouteOutcome {
+    /// The command was sent and the matrix's routing report confirms it.
+    Verified {
+        /// The routing as the matrix now reports it.
+        routing: RoutingReport,
+    },
+
+    /// The command was sent and nothing confirmed it.
+    Unverified {
+        /// Why it could not be confirmed.
+        reason: Unverified,
+        /// Anything worth telling the user.
+        warnings: Vec<Warning>,
+    },
+}
+
+impl RouteOutcome {
+    /// Whether the matrix confirmed the result.
+    pub fn is_confirmed(&self) -> bool {
+        matches!(self, Self::Verified { .. })
+    }
+
+    /// The routing the matrix reported, when it reported any.
+    pub fn routing(&self) -> Option<&RoutingReport> {
+        match self {
+            Self::Verified { routing } => Some(routing),
+            Self::Unverified { .. } => None,
+        }
+    }
+}
+
+impl fmt::Display for RouteOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Verified { routing } => write!(f, "routed: {routing}"),
+            Self::Unverified { reason, .. } => {
+                write!(f, "routing requested, not verified: {reason}")
+            }
+        }
+    }
+}

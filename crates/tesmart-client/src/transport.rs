@@ -125,3 +125,85 @@ impl fmt::Display for TransportKind {
         f.write_str(self.name())
     }
 }
+
+/// Something went wrong with the link, as opposed to with the protocol.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum TransportError {
+    /// The connection attempt failed.
+    #[error("cannot connect to {target}")]
+    Connect {
+        /// The connector that failed, as it describes itself.
+        target: String,
+        /// The underlying failure.
+        #[source]
+        source: io::Error,
+    },
+
+    /// The connection attempt ran out of time.
+    #[error("connecting to {target} timed out after {after:?}")]
+    ConnectTimeout {
+        /// The connector that timed out.
+        target: String,
+        /// How long was allowed.
+        after: Duration,
+    },
+
+    /// The switch closed the connection.
+    ///
+    /// Expected at the end of a conversation, a failure in the middle of one.
+    #[error("the switch closed the connection")]
+    Closed,
+
+    /// A read or write failed.
+    #[error("{operation} failed")]
+    Io {
+        /// What was being attempted: `read` or `write`.
+        operation: &'static str,
+        /// The underlying failure.
+        #[source]
+        source: io::Error,
+    },
+
+    /// The target could not be understood, before any connection was attempted.
+    #[error("{0}")]
+    Target(String),
+}
+
+impl TransportError {
+    /// Wraps a connection failure, naming the target.
+    pub fn connect(target: &dyn fmt::Display, source: io::Error) -> Self {
+        Self::Connect { target: target.to_string(), source }
+    }
+
+    /// Reports a connection attempt that ran out of time.
+    pub fn connect_timeout(target: &dyn fmt::Display, after: Duration) -> Self {
+        Self::ConnectTimeout { target: target.to_string(), after }
+    }
+
+    /// Wraps a read failure.
+    pub fn read(source: io::Error) -> Self {
+        Self::io("read", source)
+    }
+
+    /// Wraps a write failure.
+    pub fn write(source: io::Error) -> Self {
+        Self::io("write", source)
+    }
+
+    /// Wraps an IO failure, recognising the ones that only mean "the link is gone".
+    ///
+    /// A switch that hangs up mid-command surfaces as a broken pipe on the next write or a
+    /// reset on the next read; "the switch closed the connection" is more useful to a user than
+    /// either of those.
+    fn io(operation: &'static str, source: io::Error) -> Self {
+        match source.kind() {
+            io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::UnexpectedEof => Self::Closed,
+            _ => Self::Io { operation, source },
+        }
+    }
+}

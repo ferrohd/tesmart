@@ -207,3 +207,45 @@ impl TransportError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn net_config_over_serial_is_not_documented() {
+        assert!(TransportKind::Tcp.net_config_is_documented());
+        assert!(!TransportKind::Serial.net_config_is_documented());
+        assert_eq!(TransportKind::Serial.to_string(), "serial");
+    }
+
+    #[test]
+    fn a_broken_link_reads_as_closed_whatever_the_io_error_was() {
+        assert!(matches!(
+            TransportError::write(io::Error::from(io::ErrorKind::BrokenPipe)),
+            TransportError::Closed
+        ));
+        assert!(matches!(
+            TransportError::read(io::Error::from(io::ErrorKind::ConnectionReset)),
+            TransportError::Closed
+        ));
+        // anything else keeps its detail
+        assert!(matches!(
+            TransportError::read(io::Error::from(io::ErrorKind::PermissionDenied)),
+            TransportError::Io { operation: "read", .. }
+        ));
+    }
+
+    #[test]
+    fn errors_name_their_target() {
+        let error = TransportError::connect(
+            &"tcp://192.168.1.10:5000",
+            io::Error::from(io::ErrorKind::ConnectionRefused),
+        );
+        assert_eq!(error.to_string(), "cannot connect to tcp://192.168.1.10:5000");
+
+        let error =
+            TransportError::connect_timeout(&"serial:///dev/ttyUSB0", Duration::from_secs(5));
+        assert!(error.to_string().contains("timed out after 5s"), "{error}");
+    }
+}

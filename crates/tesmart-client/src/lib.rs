@@ -9,9 +9,14 @@
 #![allow(clippy::must_use_candidate)]
 
 mod error;
+mod outcome;
 mod spec;
 mod transport;
 
 pub use crate::error::{ClientError, ErrorClass, OpError};
+pub use crate::outcome::{
+    Confirmed, NetOutcome, NetReport, PortCountProbe, PresetOutcome, RouteOutcome, RoutingReport,
+    Sent, SwitchOutcome, Unverified, Warning,
+};
 pub use crate::spec::ModelSpec;
 pub use crate::transport::{ConnectionPolicy, Connector, TransportError, TransportKind};

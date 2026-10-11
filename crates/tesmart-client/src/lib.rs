@@ -10,6 +10,7 @@
 
 mod error;
 mod outcome;
+mod session;
 mod spec;
 mod transport;
 
@@ -18,5 +19,6 @@ pub use crate::outcome::{
     Confirmed, NetOutcome, NetReport, PortCountProbe, PresetOutcome, RouteOutcome, RoutingReport,
     Sent, SwitchOutcome, Unverified, Warning,
 };
+pub use crate::session::{Session, Stats};
 pub use crate::spec::ModelSpec;
 pub use crate::transport::{ConnectionPolicy, Connector, TransportError, TransportKind};

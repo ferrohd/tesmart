@@ -448,4 +448,119 @@ impl<C: Connector, P: Profile> Session<C, P> {
             _ => {}
         }
     }
+
+    async fn write(&mut self, transmit: &Transmit) -> Result<(), ClientError> {
+        self.connect().await?;
+
+        let Self { conn, stats, .. } = self;
+        let Some(io) = conn.as_mut() else {
+            return Err(ClientError::Transport(TransportError::Closed));
+        };
+
+        tracing::debug!(
+            target: "tesmart::wire",
+            dir = "tx",
+            attempt = transmit.attempt(),
+            kind = ?transmit.kind(),
+            bytes = ?transmit.bytes(),
+            "write"
+        );
+
+        io.write_all(transmit).await.map_err(TransportError::write)?;
+        io.flush().await.map_err(TransportError::write)?;
+
+        stats.writes += 1;
+        stats.bytes_tx += transmit.len() as u64;
+        if transmit.attempt() > 1 {
+            stats.retries += 1;
+        }
+
+        Ok(())
+    }
+
+    async fn connect(&mut self) -> Result<(), ClientError> {
+        if self.conn.is_some() {
+            return Ok(());
+        }
+
+        tracing::debug!(target: "tesmart::session", switch = %self.connector, "connecting");
+        let io = self.connector.connect().await?;
+        self.conn = Some(io);
+        self.stats.connections += 1;
+        Ok(())
+    }
+
+    /// Closes the connection if the policy says so, and clears the engine after a failure.
+    async fn settle(&mut self, result: &Result<Response, ClientError>) {
+        let failed = result.is_err();
+
+        if failed {
+            // Leave nothing in flight: the next exchange must not inherit this one's state.
+            self.engine.reset();
+            while let Some(event) = self.engine.poll_event() {
+                if matches!(event, Event::PortChanged(_)) {
+                    self.record(event);
+                }
+            }
+        }
+
+        if failed || self.policy == ConnectionPolicy::PerCommand {
+            self.disconnect().await;
+        }
+    }
+
+    /// Recovers from an exchange that was left in flight by a cancelled future.
+    fn clear_stale_exchange(&mut self) {
+        if self.engine.is_idle() {
+            return;
+        }
+
+        tracing::warn!(
+            target: "tesmart::session",
+            pending = ?self.engine.pending(),
+            "abandoning an exchange that was left in flight"
+        );
+        self.engine.reset();
+        while let Some(event) = self.engine.poll_event() {
+            if matches!(event, Event::PortChanged(_)) {
+                self.record(event);
+            }
+        }
+    }
+
+    fn timed_out(&self) -> ClientError {
+        ClientError::Timeout { after: self.operation_timeout }
+    }
+}
+
+impl<C: Connector, P: Profile> fmt::Display for Session<C, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.connector)
+    }
+}
+
+/// Hand written rather than derived, so that a byte stream does not have to be `Debug` and the
+/// output says something useful about the conversation.
+impl<C: Connector, P: Profile> fmt::Debug for Session<C, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session")
+            .field("switch", &format_args!("{}", self.connector))
+            .field("family", &self.family())
+            .field("connected", &self.conn.is_some())
+            .field("connection_policy", &self.policy)
+            .field("unsolicited", &self.unsolicited.len())
+            .field("stats", &self.stats)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Sleeps until `until`, or until `deadline`. Returns `false` if the deadline came first.
+async fn sleep_until_bounded(until: Instant, deadline: Instant) -> bool {
+    if deadline <= until {
+        tokio::time::sleep_until(deadline).await;
+        false
+    } else {
+        tokio::time::sleep_until(until).await;
+        true
+    }
 }

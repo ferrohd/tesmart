@@ -275,4 +275,99 @@ impl<C: Connector, P: Profile> Session<C, P> {
             tracing::debug!(target: "tesmart::session", switch = %self.connector, "closed");
         }
     }
+
+    /// Runs one exchange to completion.
+    async fn pump(
+        &mut self,
+        id: ExchangeId,
+        kind: Option<RequestKind>,
+    ) -> Result<Response, ClientError> {
+        let deadline = Instant::now() + self.operation_timeout;
+        let mut written = false;
+
+        loop {
+            if let Some(outcome) = self.collect(id, kind) {
+                return outcome;
+            }
+
+            if let Some(transmit) = self.engine.poll_transmit(Instant::now()) {
+                self.write(&transmit).await?;
+                written = true;
+                continue;
+            }
+
+            let timer = self.engine.poll_timeout();
+
+            if !written {
+                // The engine is holding the command gap. Wait for it before opening a
+                // connection, so a per-command session does not sit on an idle socket.
+                let Some(ready_at) = timer else {
+                    // The engine went idle without finishing our exchange: it was reset.
+                    return Err(ClientError::Aborted);
+                };
+                tracing::trace!(
+                    target: "tesmart::session",
+                    wait = ?ready_at.saturating_duration_since(Instant::now()),
+                    "waiting for the command gap"
+                );
+                if !sleep_until_bounded(ready_at, deadline).await {
+                    return Err(self.timed_out());
+                }
+                continue;
+            }
+
+            self.connect().await?;
+            if !self.wait(timer, Some(deadline)).await? {
+                return Err(self.timed_out());
+            }
+        }
+    }
+
+    /// Waits for a read, the engine's deadline, or the operation budget.
+    ///
+    /// Returns `false` if the operation budget expired.
+    async fn wait(
+        &mut self,
+        timer: Option<Instant>,
+        deadline: Option<Instant>,
+    ) -> Result<bool, ClientError> {
+        // Disjoint field borrows: the read holds `conn` and `rx` while the engine is updated.
+        let Self { engine, conn, rx, stats, connector, .. } = self;
+        let Some(io) = conn.as_mut() else {
+            return Err(ClientError::Transport(TransportError::Closed));
+        };
+
+        let timer_at = timer.unwrap_or_else(Instant::now);
+        let deadline_at = deadline.unwrap_or_else(Instant::now);
+
+        tokio::select! {
+            biased;
+
+            () = tokio::time::sleep_until(deadline_at), if deadline.is_some() => Ok(false),
+
+            read = io.read(rx.as_mut_slice()) => {
+                let count = read.map_err(TransportError::read)?;
+                if count == 0 {
+                    tracing::debug!(target: "tesmart::session", switch = %connector, "switch closed the connection");
+                    *conn = None;
+                    return Err(ClientError::Transport(TransportError::Closed));
+                }
+                stats.bytes_rx += count as u64;
+                tracing::debug!(
+                    target: "tesmart::wire",
+                    dir = "rx", bytes = %Hex(&rx[..count]),
+                    "read"
+                );
+                engine.handle_input(&rx[..count], Instant::now());
+                Ok(true)
+            }
+
+            () = tokio::time::sleep_until(timer_at), if timer.is_some() => {
+                engine.handle_timeout(Instant::now());
+                Ok(true)
+            }
+        }
+    }
+
+    /// Pulls events out of the engine, returning the outcome of exchange `id` if it finished.
 }

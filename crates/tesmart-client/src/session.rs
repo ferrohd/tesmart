@@ -3,6 +3,20 @@
 //! A [`Session`] owns a [`Engine`](tesmart_proto::Engine) and a connection, and turns the
 //! engine's poll-based interface into `async fn`s. It is generic over the byte stream, so TCP,
 //! RS232 and the emulator all run the same loop.
+//!
+//! # The loop
+//!
+//! Per iteration, in this order:
+//!
+//! 1. drain engine events: ours ends the exchange, a port report from the front panel is queued,
+//!    desyncs and bad replies are logged and counted;
+//! 2. write, if the engine has bytes ready and the command gap has passed;
+//! 3. if nothing has been written for this exchange yet and the engine is holding the gap, wait
+//!    **without opening a connection**;
+//! 4. otherwise wait for a read, for the engine's next deadline, or for the operation budget.
+//!
+//! The engine lives in the session, not in the connection, which is what lets the default
+//! connection-per-command policy still honour the switch's one-second command spacing.
 
 use core::fmt;
 use core::time::Duration;

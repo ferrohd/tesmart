@@ -63,3 +63,115 @@ pub struct Stats {
     /// Replies that were malformed, such as a port index that is not a port.
     pub bad_replies: u64,
 }
+
+/// One conversation with one switch.
+pub struct Session<C: Connector, P: Profile = Family> {
+    connector: C,
+    engine: Engine<P, Instant>,
+    conn: Option<C::Io>,
+    policy: ConnectionPolicy,
+    operation_timeout: Duration,
+    rx: Box<[u8; RX_CAPACITY]>,
+    unsolicited: VecDeque<Event>,
+    stats: Stats,
+}
+
+impl<C: Connector, P: Profile> Session<C, P> {
+    /// A session for `profile`, with the default protocol [`Policy`] and connection policy.
+    pub fn new(connector: C, profile: P) -> Self {
+        Self::with_policy(connector, profile, Policy::DEFAULT)
+    }
+
+    /// A session with an explicit protocol policy (timings and ASCII dialect).
+    ///
+    /// The connection policy starts at whatever the transport
+    /// [prefers](Connector::preferred_policy); override it with
+    /// [`set_connection_policy`](Self::set_connection_policy).
+    ///
+    /// The policy's [`ascii_scope`](Policy::ascii_scope) is taken from the transport rather than
+    /// from the caller: a matrix reached over RS232 needs the `MT80xx` wrapped network commands,
+    /// and which transport is in use is not something a caller should have to restate.
+    pub fn with_policy(connector: C, profile: P, policy: Policy) -> Self {
+        let connection_policy = connector.preferred_policy();
+        let policy = policy.with_ascii_scope(scope_for(connector.kind()));
+        Self {
+            connector,
+            engine: Engine::with_policy(profile, policy),
+            conn: None,
+            policy: connection_policy,
+            operation_timeout: DEFAULT_OPERATION_TIMEOUT,
+            rx: Box::new([0; RX_CAPACITY]),
+            unsolicited: VecDeque::new(),
+            stats: Stats::default(),
+        }
+    }
+
+    /// The connector in use.
+    pub fn connector(&self) -> &C {
+        &self.connector
+    }
+
+    /// What kind of link this session runs over.
+    pub fn transport_kind(&self) -> TransportKind {
+        self.connector.kind()
+    }
+
+    /// The protocol family in use.
+    pub fn family(&self) -> Family {
+        self.engine.profile().family()
+    }
+
+    /// The protocol timings in use.
+    pub fn protocol_policy(&self) -> &Policy {
+        self.engine.policy()
+    }
+
+    /// Replaces the protocol timings. Takes effect on the next exchange.
+    ///
+    /// The ASCII scope is re-derived from the transport, for the same reason
+    /// [`with_policy`](Self::with_policy) derives it.
+    pub fn set_protocol_policy(&mut self, policy: Policy) {
+        let scope = scope_for(self.connector.kind());
+        self.engine.set_policy(policy.with_ascii_scope(scope));
+    }
+
+    /// When connections are opened and closed.
+    pub fn connection_policy(&self) -> ConnectionPolicy {
+        self.policy
+    }
+
+    /// Changes when connections are opened and closed.
+    pub fn set_connection_policy(&mut self, policy: ConnectionPolicy) {
+        self.policy = policy;
+    }
+
+    /// How long a whole operation may take.
+    pub fn operation_timeout(&self) -> Duration {
+        self.operation_timeout
+    }
+
+    /// Sets how long a whole operation may take.
+    ///
+    /// Must comfortably exceed the protocol policy's retry budget, or reads will be cut off
+    /// before the engine has finished retrying them.
+    pub fn set_operation_timeout(&mut self, timeout: Duration) {
+        self.operation_timeout = timeout;
+    }
+
+    /// Whether a connection is currently open.
+    pub fn is_connected(&self) -> bool {
+        self.conn.is_some()
+    }
+
+    /// Counters since the session was created.
+    pub fn stats(&self) -> &Stats {
+        &self.stats
+    }
+
+    /// Port reports that arrived while something else was going on, oldest first.
+    pub fn take_unsolicited(&mut self) -> impl Iterator<Item = Event> + '_ {
+        self.unsolicited.drain(..)
+    }
+
+    /// Sends a request and waits for its answer.
+}

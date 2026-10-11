@@ -295,3 +295,89 @@ impl fmt::Display for RouteOutcome {
         }
     }
 }
+
+/// The result of saving or loading a matrix preset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetOutcome {
+    /// The slot that was used.
+    pub preset: Preset,
+    /// The routing afterwards, when the matrix was asked and answered.
+    pub routing: Option<RoutingReport>,
+    /// Anything worth telling the user.
+    pub warnings: Vec<Warning>,
+}
+
+impl fmt::Display for PresetOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.routing {
+            Some(routing) => write!(f, "preset {} applied: {routing}", self.preset),
+            None => write!(f, "preset {} sent, routing not read back", self.preset),
+        }
+    }
+}
+
+/// Something true and important that is not an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Warning {
+    /// Network settings were written over RS232.
+    ///
+    /// TESmart's IP-change guide states KVM firmware does not support IP configuration over
+    /// RS232, while two community tools report doing it successfully. Untested on your unit.
+    NetConfigOverSerial,
+
+    /// Network settings persist when the switch answers `OK`, but only take effect after a
+    /// power cycle.
+    PowerCycleRequired,
+
+    /// There is no factory reset. A wrong address leaves RS232 as the only way back in.
+    NoFactoryReset,
+
+    /// A command was attempted whose support on this model is unproven.
+    CapabilityUnverified {
+        /// The command.
+        kind: RequestKind,
+        /// What the registry says.
+        support: Support,
+    },
+}
+
+impl fmt::Display for Warning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NetConfigOverSerial => f.write_str(
+                "network configuration over RS232 is disputed: TESmart says the firmware does \
+                 not support it, community tools report that it works",
+            ),
+            Self::PowerCycleRequired => {
+                f.write_str("the new settings take effect only after a power cycle")
+            }
+            Self::NoFactoryReset => f.write_str(
+                "there is no factory reset: a wrong address leaves RS232 as the only way back",
+            ),
+            Self::CapabilityUnverified { kind, support } => {
+                write!(f, "{kind} is {support} on this model")
+            }
+        }
+    }
+}
+
+/// Proof that a destructive change was asked for on purpose.
+///
+/// Required by [`Kvm::set_network`](crate::Kvm::set_network). This is a readability device, not
+/// a security boundary: it makes `set_network(changes, Confirmed::yes())` say at the call site
+/// what a bare `true` would not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Confirmed(());
+
+impl Confirmed {
+    /// The user asked for this.
+    pub const fn yes() -> Self {
+        Self(())
+    }
+
+    /// Converts a flag, such as a `--yes` command line switch.
+    pub const fn from_flag(confirmed: bool) -> Option<Self> {
+        if confirmed { Some(Self(())) } else { None }
+    }
+}

@@ -370,4 +370,82 @@ impl<C: Connector, P: Profile> Session<C, P> {
     }
 
     /// Pulls events out of the engine, returning the outcome of exchange `id` if it finished.
+    fn collect(
+        &mut self,
+        id: ExchangeId,
+        kind: Option<RequestKind>,
+    ) -> Option<Result<Response, ClientError>> {
+        let mut outcome = None;
+
+        while let Some(event) = self.engine.poll_event() {
+            match event {
+                Event::Completed { id: finished, response } if finished == id => {
+                    outcome = outcome.or(Some(Ok(response)));
+                }
+                Event::Failed { id: failed, error } if failed == id => {
+                    let error = match error {
+                        ExchangeError::Timeout { attempts } => {
+                            ClientError::NoReply { kind, attempts }
+                        }
+                        ExchangeError::Aborted => ClientError::Aborted,
+                        other => ClientError::Exchange(other),
+                    };
+                    outcome = outcome.or(Some(Err(error)));
+                }
+                other => self.record(other),
+            }
+        }
+
+        outcome
+    }
+
+    /// Logs, counts and (for port changes) queues an event that is not an exchange outcome.
+    fn record(&mut self, event: Event) {
+        match event {
+            Event::PortChanged(port) => {
+                self.stats.unsolicited += 1;
+                tracing::info!(
+                    target: "tesmart::session",
+                    port = port.get(),
+                    "the switch reports a port change nobody asked for"
+                );
+                if self.unsolicited.len() >= UNSOLICITED_CAPACITY {
+                    self.unsolicited.pop_front();
+                }
+                self.unsolicited.push_back(event);
+            }
+            Event::Desync { dropped } => {
+                self.stats.desyncs += 1;
+                tracing::warn!(
+                    target: "tesmart::session",
+                    dropped,
+                    "dropped bytes that could not be part of anything valid"
+                );
+            }
+            Event::InvalidPortReport { raw } => {
+                self.stats.bad_replies += 1;
+                tracing::debug!(
+                    target: "tesmart::session",
+                    raw = format_args!("0x{raw:02X}"),
+                    "port report carried an impossible index; retrying"
+                );
+            }
+            Event::UnexpectedFrame { opcode } => {
+                self.stats.bad_replies += 1;
+                tracing::debug!(
+                    target: "tesmart::session",
+                    opcode = format_args!("0x{opcode:02X}"),
+                    "frame that no profile interprets"
+                );
+            }
+            Event::UnexpectedReply { kind } => {
+                self.stats.bad_replies += 1;
+                tracing::debug!(target: "tesmart::session", %kind, "reply nobody was waiting for");
+            }
+            Event::Completed { id, .. } | Event::Failed { id, .. } => {
+                tracing::debug!(target: "tesmart::session", %id, "event for a finished exchange");
+            }
+            _ => {}
+        }
+    }
 }

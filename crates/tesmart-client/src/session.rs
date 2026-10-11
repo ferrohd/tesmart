@@ -174,4 +174,105 @@ impl<C: Connector, P: Profile> Session<C, P> {
     }
 
     /// Sends a request and waits for its answer.
+    ///
+    /// For a command the protocol defines no reply to, the answer is
+    /// [`Response::Accepted`]: the bytes reached the transport, and nothing more can be known.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Rejected`] if the active family has no such command (nothing is sent),
+    /// [`ClientError::NoReply`] if the switch stayed silent through every retry,
+    /// [`ClientError::Transport`] if the link failed, [`ClientError::Timeout`] if the operation
+    /// budget ran out.
+    pub async fn exchange(&mut self, request: Request) -> Result<Response, ClientError> {
+        let kind = request.kind();
+        self.clear_stale_exchange();
+
+        let id = self.engine.submit(request, Instant::now())?;
+        self.stats.exchanges += 1;
+        tracing::debug!(
+            target: "tesmart::session",
+            %id, request = %request, switch = %self.connector,
+            "exchange started"
+        );
+
+        let result = self.pump(id, Some(kind)).await;
+        self.settle(&result).await;
+        result
+    }
+
+    /// Sends bytes that bypass the profile tables, for probing an undocumented model.
+    ///
+    /// With `expect_reply`, the first thing that comes back is returned whatever it is; with
+    /// `false`, the call returns as soon as the bytes are written.
+    ///
+    /// # Errors
+    ///
+    /// As [`exchange`](Self::exchange), plus [`ClientError::Rejected`] if `bytes` is longer than
+    /// one protocol unit.
+    pub async fn exchange_raw(
+        &mut self,
+        bytes: &[u8],
+        expect_reply: bool,
+    ) -> Result<Option<Response>, ClientError> {
+        self.clear_stale_exchange();
+
+        let id = self.engine.submit_raw(bytes, expect_reply, Instant::now())?;
+        self.stats.exchanges += 1;
+        tracing::debug!(
+            target: "tesmart::session",
+            %id, bytes = %Hex(bytes), expect_reply,
+            "raw exchange started"
+        );
+
+        let result = self.pump(id, None).await;
+        self.settle(&result).await;
+
+        match result {
+            Ok(Response::Accepted) if !expect_reply => Ok(None),
+            Ok(response) => Ok(Some(response)),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Waits for the switch to say something on its own.
+    ///
+    /// Only [`Event::PortChanged`] is returned; diagnostics are logged and counted. Requires a
+    /// [`ConnectionPolicy::Persistent`] session, since a switch only pushes reports to a
+    /// connected client.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Transport`] if the link fails or the switch closes it.
+    pub async fn next_event(&mut self) -> Result<Event, ClientError> {
+        loop {
+            if let Some(event) = self.unsolicited.pop_front() {
+                return Ok(event);
+            }
+
+            let mut drained = false;
+            while let Some(event) = self.engine.poll_event() {
+                self.record(event);
+                drained = true;
+            }
+            if drained {
+                continue;
+            }
+
+            self.connect().await?;
+            self.wait(self.engine.poll_timeout(), None).await?;
+        }
+    }
+
+    /// Closes the connection, if one is open.
+    ///
+    /// The close is clean (a shutdown, not a drop), because the protocol notes say unsolicited
+    /// reports stop after a clean close.
+    pub async fn disconnect(&mut self) {
+        if let Some(mut io) = self.conn.take() {
+            let _shutdown = io.shutdown().await;
+            self.stats.disconnections += 1;
+            tracing::debug!(target: "tesmart::session", switch = %self.connector, "closed");
+        }
+    }
 }

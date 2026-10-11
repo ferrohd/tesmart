@@ -381,3 +381,53 @@ impl Confirmed {
         if confirmed { Some(Self(())) } else { None }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn port(n: u8) -> Port {
+        Port::new(n).unwrap()
+    }
+
+    #[test]
+    fn outcomes_read_like_their_meaning() {
+        assert_eq!(
+            SwitchOutcome::Verified { port: port(3), attempts: 1 }.to_string(),
+            "switched to port 3"
+        );
+        assert_eq!(
+            SwitchOutcome::Verified { port: port(3), attempts: 3 }.to_string(),
+            "switched to port 3 (confirmed after 3 reads)"
+        );
+        assert_eq!(
+            SwitchOutcome::Unverified {
+                port: port(3),
+                reason: Unverified::ModelCannotRead { support: Support::Unsupported },
+                warnings: Vec::new(),
+            }
+            .to_string(),
+            "port 3 requested, not verified: reading the active port is unsupported on this model"
+        );
+    }
+
+    #[test]
+    fn only_a_read_back_counts_as_confirmation() {
+        assert!(SwitchOutcome::AlreadyActive(port(1)).is_confirmed());
+        assert!(SwitchOutcome::Verified { port: port(1), attempts: 1 }.is_confirmed());
+        assert!(
+            !SwitchOutcome::Unverified {
+                port: port(1),
+                reason: Unverified::Disabled,
+                warnings: Vec::new(),
+            }
+            .is_confirmed()
+        );
+    }
+
+    #[test]
+    fn confirmation_cannot_be_conjured_from_nothing() {
+        assert_eq!(Confirmed::from_flag(false), None);
+        assert_eq!(Confirmed::from_flag(true), Some(Confirmed::yes()));
+    }
+}

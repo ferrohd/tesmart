@@ -145,4 +145,100 @@ impl<C: Connector> Kvm<C> {
 
     /// Reads the active port.
     ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] if the model cannot report its port (the 4x1 DVI series cannot,
+    /// and the P23 series is unproven), or the underlying exchange's failure.
+    #[tracing::instrument(level = "debug", skip(self), fields(switch = %self.ops.session))]
+    pub async fn active_port(&mut self) -> Result<Port, OpError> {
+        self.ops.require(RequestKind::ReadActivePort)?;
+        self.read_active_port().await
+    }
+
+    /// Switches every output to a port, with the default options.
+    ///
+    /// # Errors
+    ///
+    /// See [`switch_with`](Self::switch_with).
+    pub async fn switch(&mut self, port: Port) -> Result<SwitchOutcome, OpError> {
+        self.switch_with(port, self.defaults).await
+    }
+
+    /// Switches every output to a port.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::PortOutOfRange`] if the switch has no such port,
+    /// [`OpError::VerificationFailed`] if the read-back reports a different port, or the
+    /// underlying exchange's failure. A read-back that stays silent is **not** an error: it
+    /// produces [`SwitchOutcome::Unverified`].
+    #[tracing::instrument(level = "debug", skip(self, options), fields(switch = %self.ops.session, port = port.get()))]
+    pub async fn switch_with(
+        &mut self,
+        port: Port,
+        options: SwitchOptions,
+    ) -> Result<SwitchOutcome, OpError> {
+        let port = self.ops.check_port(port)?;
+        let skip_reason = self.plan_verification(options.verify)?;
+
+        if options.skip_if_active && skip_reason.is_none() {
+            // A pre-read is only worth anything if reading works at all.
+            if let Ok(current) = self.read_active_port().await
+                && current == port
+            {
+                tracing::debug!(target: "tesmart::op", "already on the requested port");
+                return Ok(SwitchOutcome::AlreadyActive(port));
+            }
+        }
+
+        self.ops.session.exchange(Request::Switch(port)).await?;
+
+        if let Some(reason) = skip_reason {
+            return Ok(SwitchOutcome::Unverified {
+                port,
+                reason,
+                warnings: self.ops.warnings(RequestKind::Switch),
+            });
+        }
+
+        // The switch needs a moment before it reports the new port.
+        tokio::time::sleep(options.settle).await;
+
+        let budget = options.attempts.max(1);
+        for attempt in 1..=budget {
+            match self.read_active_port().await {
+                Ok(found) if found == port => {
+                    return Ok(SwitchOutcome::Verified { port, attempts: attempt });
+                }
+                Ok(found) => {
+                    if attempt == budget {
+                        // The switch answered, and the answer is wrong. Fail loudly.
+                        return Err(OpError::VerificationFailed { expected: port, found });
+                    }
+                    tracing::debug!(
+                        target: "tesmart::op",
+                        found = found.get(),
+                        "the switch still reports the old port; reading again"
+                    );
+                }
+                Err(OpError::Client(ClientError::NoReply { attempts: tries, .. })) => {
+                    if attempt == budget {
+                        return Ok(SwitchOutcome::Unverified {
+                            port,
+                            reason: Unverified::NoReply { attempts: tries },
+                            warnings: self.ops.warnings(RequestKind::ReadActivePort),
+                        });
+                    }
+                }
+                Err(other) => return Err(other),
+            }
+        }
+
+        // Unreachable: the loop returns on its last iteration.
+        Ok(SwitchOutcome::Unverified {
+            port,
+            reason: Unverified::NoReply { attempts: budget },
+            warnings: self.ops.warnings(RequestKind::ReadActivePort),
+        })
+    }
 }

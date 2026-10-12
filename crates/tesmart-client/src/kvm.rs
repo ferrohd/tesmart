@@ -359,4 +359,52 @@ impl<C: Connector> Kvm<C> {
     pub async fn network(&mut self) -> Result<NetReport, OpError> {
         self.ops.network().await
     }
+
+    /// Writes network settings, then reads them back.
+    ///
+    /// Three things are true of this operation and of no other:
+    ///
+    /// - the settings persist when the switch answers `OK` but take effect only after a power
+    ///   cycle;
+    /// - there is no factory reset, so a wrong address leaves RS232 as the only way back in;
+    /// - over RS232 the commands themselves are disputed.
+    ///
+    /// All three come back in [`NetOutcome::warnings`](crate::NetOutcome::warnings). The
+    /// [`Confirmed`] argument is there to make the call site say that a human asked for this.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] if the model is not believed to have the side-channel, or a
+    /// transport failure; nothing is written after the first failure. A field that reads back as
+    /// something else is **not** an error: it lands in
+    /// [`NetOutcome::mismatched`](crate::NetOutcome::mismatched), because seeing all four values
+    /// is what tells you how bad the mistake is before you power cycle.
+    #[tracing::instrument(level = "debug", skip(self, changes, confirmed), fields(switch = %self.ops.session))]
+    pub async fn set_network(
+        &mut self,
+        changes: &[NetSetting],
+        confirmed: Confirmed,
+    ) -> Result<NetOutcome, OpError> {
+        self.ops.set_network(changes, confirmed).await
+    }
+
+    /// Finds out how many inputs the switch really has, by trying them.
+    ///
+    /// **This moves the active input.** There is no command that reports the port count, but an
+    /// out-of-range switch command is ignored, so switching to 16, 15, 14 ... and reading back
+    /// finds the first one that takes. The original port is restored afterwards.
+    ///
+    /// Borrowed from `krohrbaugh/teeheesmart`, which detects port counts the same way. Only
+    /// worth running on a model the registry does not know, and only when the video
+    /// interruption is acceptable.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] unless the switch can report its active port: without a
+    /// read-back there is nothing to learn. Transport failures propagate; a switch that goes
+    /// silent mid-probe ends the probe with what it found so far.
+    #[tracing::instrument(level = "debug", skip(self), fields(switch = %self.ops.session))]
+    pub async fn probe_port_count(&mut self) -> Result<PortCountProbe, OpError> {
+        self.ops.require(RequestKind::ReadActivePort)?;
+        self.ops.require(RequestKind::Switch)?;
 }

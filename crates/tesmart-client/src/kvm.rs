@@ -241,4 +241,122 @@ impl<C: Connector> Kvm<C> {
             warnings: self.ops.warnings(RequestKind::ReadActivePort),
         })
     }
+
+    /// Steps one output of a dual-monitor switch to the next or previous input.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a single-monitor switch, where the same opcode sets the
+    /// display timeout instead.
+    pub async fn step(&mut self, output: Output, step: Step) -> Result<Sent, OpError> {
+        self.ops.fire(Request::StepOutput { output, step }).await
+    }
+
+    /// Moves the USB link between the two outputs of a dual-monitor switch.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a single-monitor switch.
+    pub async fn move_usb(&mut self) -> Result<Sent, OpError> {
+        self.ops.fire(Request::MoveUsb).await
+    }
+
+    /// Turns keyboard and mouse pass-through on or off, on a dual-monitor switch.
+    ///
+    /// The values are inverted on the wire, which the profile handles; `On` here means
+    /// pass-through is enabled.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a single-monitor switch, which has no such command.
+    pub async fn set_km_passthrough(&mut self, state: Toggle) -> Result<Sent, OpError> {
+        self.ops.fire(Request::KmPassthrough(state)).await
+    }
+
+    /// Chooses which key starts a hotkey sequence, on a dual-monitor switch.
+    ///
+    /// Hotkeys only work on the dedicated keyboard and mouse port.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a single-monitor switch.
+    pub async fn set_hotkey_trigger(&mut self, key: HotkeyTrigger) -> Result<Sent, OpError> {
+        self.ops.fire(Request::HotkeyTrigger(key)).await
+    }
+
+    /// Turns auto-switching on or off, on a dual-monitor switch.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a single-monitor switch.
+    pub async fn set_auto_switch(&mut self, state: Toggle) -> Result<Sent, OpError> {
+        self.ops.fire(Request::AutoSwitch(state)).await
+    }
+
+    /// Sets the auto-switch dwell time, on a dual-monitor switch.
+    ///
+    /// The only command in the protocol with a two-byte payload, and the only one whose
+    /// encoding is inferred rather than documented: see
+    /// [`SwitchInterval`](tesmart_proto::value::SwitchInterval).
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a single-monitor switch.
+    pub async fn set_auto_switch_interval(
+        &mut self,
+        interval: SwitchInterval,
+    ) -> Result<Sent, OpError> {
+        self.ops.fire(Request::AutoSwitchInterval(interval)).await
+    }
+
+    /// Mutes or unmutes the buzzer.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on models whose documentation has no buzzer command.
+    pub async fn set_buzzer(&mut self, buzzer: Buzzer) -> Result<Sent, OpError> {
+        self.ops.fire(Request::Buzzer(buzzer)).await
+    }
+
+    /// Sets how long the front panel display stays lit.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on models without the command.
+    pub async fn set_display_timeout(&mut self, timeout: DisplayTimeout) -> Result<Sent, OpError> {
+        self.ops.fire(Request::DisplayTimeout(timeout)).await
+    }
+
+    /// Turns automatic input detection on or off.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on models without the command.
+    pub async fn set_auto_input_detect(&mut self, state: Toggle) -> Result<Sent, OpError> {
+        self.ops.fire(Request::AutoInputDetect(state)).await
+    }
+
+    /// Starts following the active port.
+    ///
+    /// Holds one connection open: a switch only pushes port reports to a connected client. On a
+    /// model that can be read, the watch also polls, because pushed reports are an undocumented
+    /// behaviour that not every firmware has.
+    pub fn watch(&mut self, options: WatchOptions) -> Watch<'_, C> {
+        Watch::new(self, options)
+    }
+
+    /// Reads all four network settings.
+    ///
+    /// A field the switch does not answer for is reported in
+    /// [`NetReport::missing`](crate::NetReport::missing) rather than failing the whole call: the
+    /// other three are still worth having.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] if the model is not believed to have the ASCII side-channel, or
+    /// a transport failure. A silent field is not an error.
+    #[tracing::instrument(level = "debug", skip(self), fields(switch = %self.ops.session))]
+    pub async fn network(&mut self) -> Result<NetReport, OpError> {
+        self.ops.network().await
+    }
 }

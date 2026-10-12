@@ -35,6 +35,7 @@
 #![allow(clippy::must_use_candidate)]
 
 mod error;
+mod ops;
 mod outcome;
 mod session;
 mod spec;

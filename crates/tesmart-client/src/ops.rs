@@ -189,3 +189,49 @@ impl Wanted {
         }
     }
 }
+
+/// Builds the family and port count every operation type needs.
+///
+/// Shared by both builders so that "no family" and "no port count" are refused identically, and
+/// a model's outputs are not silently forgotten.
+pub(crate) struct Parts {
+    pub(crate) spec: ModelSpec,
+}
+
+impl Parts {
+    pub(crate) fn resolve(
+        model: Option<&'static ModelInfo>,
+        family: Option<Family>,
+        ports: Option<tesmart_proto::PortCount>,
+        outputs: Option<tesmart_proto::PortCount>,
+        wanted: Wanted,
+    ) -> Result<Self, crate::kvm::BuildError> {
+        use crate::kvm::BuildError;
+
+        let family =
+            family.or_else(|| model.map(|model| model.family)).ok_or(BuildError::NoFamily)?;
+        let ports =
+            ports.or_else(|| model.map(|model| model.ports)).ok_or(BuildError::NoPortCount)?;
+
+        if !wanted.accepts(family) {
+            return Err(BuildError::WrongFamily { expected: wanted.describe(), actual: family });
+        }
+
+        let mut spec = match model {
+            Some(model) => ModelSpec::from_model(model),
+            None => ModelSpec::custom(family, ports),
+        };
+        spec.family = family;
+        spec.ports = ports;
+        if let Some(outputs) = outputs {
+            spec.outputs = outputs;
+        } else if model.is_none() {
+            // Without a registry entry, a matrix is assumed square and anything else
+            // single-output, which is true of every published model.
+            spec.outputs =
+                if family == Family::Matrix { ports } else { tesmart_proto::PortCount::MIN };
+        }
+
+        Ok(Self { spec })
+    }
+}

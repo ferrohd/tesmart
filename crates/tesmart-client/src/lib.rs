@@ -35,6 +35,7 @@
 #![allow(clippy::must_use_candidate)]
 
 mod error;
+mod kvm;
 mod ops;
 mod outcome;
 mod session;
@@ -42,6 +43,7 @@ mod spec;
 mod transport;
 
 pub use crate::error::{ClientError, ErrorClass, OpError};
+pub use crate::kvm::{BuildError, Kvm, KvmBuilder, SwitchOptions, Verify};
 pub use crate::outcome::{
     Confirmed, NetOutcome, NetReport, PortCountProbe, PresetOutcome, RouteOutcome, RoutingReport,
     Sent, SwitchOutcome, Unverified, Warning,

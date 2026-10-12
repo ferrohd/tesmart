@@ -95,3 +95,54 @@ impl SwitchOptions {
         self
     }
 }
+
+/// A KVM switch, with operations that know what it can confirm.
+pub struct Kvm<C: Connector> {
+    ops: Ops<C>,
+    defaults: SwitchOptions,
+}
+
+impl<C: Connector> Kvm<C> {
+    /// Starts building a switch handle.
+    pub fn builder(connector: C) -> KvmBuilder<C> {
+        KvmBuilder::new(connector)
+    }
+
+    /// A handle to a catalogued model.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::WrongFamily`] if the model is an HDMI matrix; use
+    /// [`Matrix`](crate::Matrix) for those.
+    pub fn from_model(connector: C, model: &'static ModelInfo) -> Result<Self, BuildError> {
+        KvmBuilder::new(connector).model(model).build()
+    }
+
+    /// What the switch is believed to be.
+    pub fn spec(&self) -> &ModelSpec {
+        &self.ops.spec
+    }
+
+    /// How many inputs it has.
+    pub fn ports(&self) -> PortCount {
+        self.ops.spec.ports
+    }
+
+    /// Which protocol family it speaks.
+    pub fn family(&self) -> Family {
+        self.ops.spec.family
+    }
+
+    /// The underlying session, for raw exchanges and statistics.
+    pub fn session(&self) -> &Session<C, Family> {
+        &self.ops.session
+    }
+
+    /// The underlying session.
+    pub fn session_mut(&mut self) -> &mut Session<C, Family> {
+        &mut self.ops.session
+    }
+
+    /// Reads the active port.
+    ///
+}

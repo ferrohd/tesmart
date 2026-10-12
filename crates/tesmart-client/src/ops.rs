@@ -160,3 +160,32 @@ impl<C: Connector> Ops<C> {
         warnings
     }
 }
+
+/// Which operation type is being built, and therefore which families it accepts.
+///
+/// One value rather than a predicate plus a label, so the test and the error message it
+/// produces cannot drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Wanted {
+    /// [`Kvm`](crate::Kvm): anything that is not a matrix.
+    Kvm,
+    /// [`Matrix`](crate::Matrix): matrices only.
+    Matrix,
+}
+
+impl Wanted {
+    const fn accepts(self, family: Family) -> bool {
+        match self {
+            Self::Kvm => !matches!(family, Family::Matrix),
+            Self::Matrix => matches!(family, Family::Matrix),
+        }
+    }
+
+    /// What [`BuildError::WrongFamily`](crate::BuildError::WrongFamily) reports as expected.
+    const fn describe(self) -> &'static str {
+        match self {
+            Self::Kvm => "a KVM switch",
+            Self::Matrix => "an HDMI matrix",
+        }
+    }
+}

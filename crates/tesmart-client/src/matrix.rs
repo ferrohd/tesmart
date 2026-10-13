@@ -222,4 +222,98 @@ impl<C: Connector> Matrix<C> {
         })
         .await
     }
+
+    /// Loads a stored routing preset.
+    ///
+    /// Documented for the 8x8 and 16x16 series only. The routing is read back afterwards where
+    /// possible, which is the only way to see what the preset contained.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a model without presets, or the underlying exchange's
+    /// failure.
+    #[tracing::instrument(level = "debug", skip(self), fields(matrix = %self.ops.session, preset = preset.get()))]
+    pub async fn load_preset(&mut self, preset: Preset) -> Result<PresetOutcome, OpError> {
+        self.ops.require(RequestKind::MatrixLoadPreset)?;
+        self.ops.session.exchange(Request::MatrixLoadPreset(preset)).await?;
+
+        let warnings = self.ops.warnings(RequestKind::MatrixLoadPreset);
+        let routing = match self.defaults.verify {
+            VerifyRouting::No => None,
+            VerifyRouting::Yes if !self.can_verify() => None,
+            VerifyRouting::Yes => {
+                tokio::time::sleep(self.defaults.settle).await;
+                self.read_routing().await.ok()
+            }
+        };
+
+        Ok(PresetOutcome { preset, routing, warnings })
+    }
+
+    /// Saves the current routing into a preset.
+    ///
+    /// Write only: nothing reports what a preset holds, so this cannot be confirmed. Documented
+    /// for the 8x8 and 16x16 series only.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a model without presets.
+    pub async fn save_preset(&mut self, preset: Preset) -> Result<Sent, OpError> {
+        self.ops.fire(Request::MatrixSavePreset(preset)).await
+    }
+
+    /// Sets how long the front display stays lit.
+    ///
+    /// Documented for the 4x4 series only; the 8x8 and 16x16 documents have no such command.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a model without the command.
+    pub async fn set_display_timeout(&mut self, timeout: MatrixTimeout) -> Result<Sent, OpError> {
+        self.ops.fire(Request::MatrixDisplayTimeout(timeout)).await
+    }
+
+    /// Mutes or unmutes the buzzer.
+    ///
+    /// Documented for the 8x8 and 16x16 series only. The wire values are inverted relative to
+    /// the KVM buzzer command, which the profile handles; [`Buzzer::Muted`] means muted here as
+    /// everywhere else.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a model without the command.
+    pub async fn set_buzzer(&mut self, buzzer: Buzzer) -> Result<Sent, OpError> {
+        self.ops.fire(Request::MatrixBuzzer(buzzer)).await
+    }
+
+    /// Reads all four network settings.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] on a matrix with no LAN port, such as the RS232-only 4x4
+    /// models, or a transport failure.
+    #[tracing::instrument(level = "debug", skip(self), fields(matrix = %self.ops.session))]
+    pub async fn network(&mut self) -> Result<NetReport, OpError> {
+        self.ops.network().await
+    }
+
+    /// Writes network settings, then reads them back.
+    ///
+    /// Unlike the KVM case, this is documented over both transports: a matrix takes the bare
+    /// strings over LAN and the `MT80xx` wrapped ones over RS232, and the session picks the
+    /// right spelling from the transport. The power-cycle and no-factory-reset warnings still
+    /// apply.
+    ///
+    /// # Errors
+    ///
+    /// As [`network`](Self::network); a field that reads back wrong lands in
+    /// [`NetOutcome::mismatched`] rather than failing.
+    #[tracing::instrument(level = "debug", skip(self, changes, confirmed), fields(matrix = %self.ops.session))]
+    pub async fn set_network(
+        &mut self,
+        changes: &[NetSetting],
+        confirmed: Confirmed,
+    ) -> Result<NetOutcome, OpError> {
+        self.ops.set_network(changes, confirmed).await
+    }
 }

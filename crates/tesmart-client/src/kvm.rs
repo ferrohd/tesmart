@@ -407,4 +407,73 @@ impl<C: Connector> Kvm<C> {
     pub async fn probe_port_count(&mut self) -> Result<PortCountProbe, OpError> {
         self.ops.require(RequestKind::ReadActivePort)?;
         self.ops.require(RequestKind::Switch)?;
+
+        // Every read here skips the range check: the whole point is that the registry's port
+        // count may be wrong, so a read-back above it is the discovery, not an error.
+        let original = self.read_port_unchecked().await?;
+        let settle = self.defaults.settle;
+        let mut found = None;
+
+        for candidate in (1..=Port::MAX).rev() {
+            let Ok(port) = Port::new(candidate) else { continue };
+            self.ops.session.exchange(Request::Switch(port)).await?;
+            tokio::time::sleep(settle).await;
+
+            match self.read_port_unchecked().await {
+                // The switch took it, so this port exists and nothing above it does.
+                Ok(active) if active == port => {
+                    found = Some(port);
+                    break;
+                }
+                // Ignored: the switch does not have this port.
+                Ok(_) => {}
+                Err(OpError::Client(ClientError::NoReply { .. })) => {
+                    tracing::debug!(
+                        target: "tesmart::op",
+                        candidate,
+                        "no reply while probing; stopping"
+                    );
+                    break;
+                }
+                Err(other) => return Err(other),
+            }
+        }
+
+        // Put the user's input back, whatever happened.
+        self.ops.session.exchange(Request::Switch(original)).await?;
+        tokio::time::sleep(settle).await;
+        let restored = matches!(self.read_port_unchecked().await, Ok(port) if port == original);
+
+        Ok(PortCountProbe { found, claimed: self.ops.spec.ports, original, restored })
+    }
+
+    /// Reads the port without the capability check, for internal use by `switch`.
+    async fn read_active_port(&mut self) -> Result<Port, OpError> {
+        let port = self.read_port_unchecked().await?;
+        self.ops.check_port(port)
+    }
+
+    /// Reads the port without checking it against the switch's claimed port count.
+    async fn read_port_unchecked(&mut self) -> Result<Port, OpError> {
+        match self.ops.session.exchange(Request::ReadActivePort).await? {
+            Response::ActivePort(port) => Ok(port),
+            other => Err(OpError::UnexpectedResponse {
+                kind: other.kind(),
+                asked: RequestKind::ReadActivePort,
+            }),
+        }
+    }
+
+    /// Decides whether to verify a switch, and why not if not.
+    fn plan_verification(&self, verify: Verify) -> Result<Option<Unverified>, OpError> {
+        let support = self.ops.spec.support(RequestKind::ReadActivePort);
+        match verify {
+            Verify::Never => Ok(Some(Unverified::Disabled)),
+            Verify::Auto if support.is_available() => Ok(None),
+            Verify::Auto => Ok(Some(Unverified::ModelCannotRead { support })),
+            Verify::Always if support.is_worth_trying() => Ok(None),
+            // Asked to verify on a switch that provably cannot: say so rather than pretend.
+            Verify::Always => Err(self.ops.unsupported(RequestKind::ReadActivePort)),
+        }
+    }
 }

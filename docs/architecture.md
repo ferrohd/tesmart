@@ -49,3 +49,54 @@ The transport crates contain no protocol or operation code at all: a transport i
 It was a feature of `tesmart-proto` at first, which was wrong twice over. A feature that gates a thousand lines of self-contained code and removes no dependency is a crate boundary wearing a disguise. And the device side is not only a test double: it is `no_std` with one dependency, so a microcontroller running it answers `AA BB 03 11 XX EE` like the genuine article and software written for TESmart hardware drives it unchanged.
 
 The split costs one thing, worth naming: `MatrixCommand` and `AsciiCommand` are `#[non_exhaustive]`, so `tesmart-device` must end its matches with a wildcard and a command added to `tesmart-proto` will be silently ignored rather than failing to compile. The equivalent guarantee on the controller side is untouched, because `Request` and the profile tables live in one crate together — and that is the one that prevents the `0x03` family clash.
+
+## tesmart-proto, bottom to top
+
+### `port`, `value` — validated arguments
+
+Each setting gets its own type rather than a shared boolean, because the wire values are not consistent: `0x00` means *mute* for the buzzer but *off* for auto input detect, dual-monitor pass-through is inverted, and the matrix buzzer is inverted against the KVM one. Naming each setting keeps those surprises in one place.
+
+`port` owns the **±1 conversion**. Writes are 1-based, the read reply is 0-based; callers always pass and receive the human port number. No other module adds or subtracts 1.
+
+### `wire` — two codecs and a stream decoder
+
+| Module | Content |
+| --- | --- |
+| `wire::frame` | `AA BB <len> <op> <data…> EE`, with `len = len(data) + 2` |
+| `wire::ascii` | the network strings, the matrix strings, and the `LINK:` reply |
+| `wire::decode` | `StreamDecoder`: the part that copes with real hardware |
+
+The decoder is the load-bearing piece. The LAN port is a serial-to-Ethernet bridge, so a TCP stream behaves like a serial line: replies split across segments, unsolicited port reports arriving mid-command, terminators that are not `0xEE`, and occasional garbage. It resynchronises rather than failing, and distinguishes a port report from a malformed one from text.
+
+`MAX_WIRE_LEN` is sized for the largest *logical* unit (88 bytes, a 16x16 matrix routing reply), not the ~48-byte segment. Conflating the two would make a 16x16's only readable command permanently unreadable.
+
+### `command` — `Request` and `Response`
+
+Family-independent on purpose: the same `Switch(Port)` works on a 16x1 KVM, a dual-monitor one and an SDI switch. Which requests a given switch understands is decided by the profile.
+
+### `profile` — one command table per family
+
+| Profile | Family | Devices |
+| --- | --- | --- |
+| `Kvm` | A | single-monitor KVMs |
+| `KvmDual` | A' | dual-monitor KVMs |
+| `Matrix` | B | HDMI matrices |
+| `Sdi` | C | the 4x1 SDI switch |
+
+The trait is **sealed**, which is what lets every table be an exhaustive `match` and makes a new `Request` variant a compile error until all four families have decided what to do with it. A request outside the active profile is refused before a byte is sent, and the error says what the opcode would have done instead:
+
+> `step-output is not available on the kvm profile: on single-monitor switches opcode 0x03 sets the front display timeout; use switch to choose a port`
+
+That message is the whole reason profiles exist.
+
+### `model` — the registry
+
+Maps a model name to a family, port counts and capability flags. A capability is `Documented`, `FieldTested`, `Unverified` or `Unsupported`, so a tool can say *why* it is about to try something, or refuse. Capability sets are named per protocol document (`archetype::MATRIX_LARGE`, `archetype::KVM_P23`) because thirty-odd models share eight distinct command sets, and spelling them out per row is how a row ends up disagreeing with its document.
+
+The family always has the last word: a capability claimed for a command the family lacks reads as `Unsupported`.
+
+### `engine` — the sans-IO request/response engine
+
+Owns everything timing-related: minimum command spacing, reply deadlines, retransmission of queries (and only queries — repeating a read is harmless, repeating a write is not), and the duplicate window that recognises the late reply to a retried read.
+
+Its interface is poll-based: `submit`, `poll_transmit`, `handle_input`, `poll_event`, `poll_timeout`. It never sleeps; the caller owns the clock.

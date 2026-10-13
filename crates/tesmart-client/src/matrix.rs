@@ -125,4 +125,101 @@ impl<C: Connector> Matrix<C> {
     pub fn session_mut(&mut self) -> &mut Session<C, Family> {
         &mut self.ops.session
     }
+
+    /// Reads which input feeds each output.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::Unsupported`] if the model is not believed to answer `MT00RD0000NT`, or the
+    /// underlying exchange's failure, including [`ClientError::NoReply`] when the matrix stays
+    /// silent.
+    #[tracing::instrument(level = "debug", skip(self), fields(matrix = %self.ops.session))]
+    pub async fn routing(&mut self) -> Result<RoutingReport, OpError> {
+        self.ops.require(RequestKind::MatrixReadRouting)?;
+        self.read_routing().await
+    }
+
+    /// Routes one input to one output, with the default options.
+    ///
+    /// # Errors
+    ///
+    /// See [`route_with`](Self::route_with).
+    pub async fn route(&mut self, input: Port, output: Port) -> Result<RouteOutcome, OpError> {
+        self.route_with(input, output, self.defaults).await
+    }
+
+    /// Routes one input to one output.
+    ///
+    /// # Errors
+    ///
+    /// [`OpError::PortOutOfRange`] or [`OpError::OutputOutOfRange`] if the matrix has no such
+    /// input or output, [`OpError::VerificationFailed`] if the read-back shows a different
+    /// input on that output, or the underlying exchange's failure. A silent read-back is not an
+    /// error: it produces [`RouteOutcome::Unverified`].
+    #[tracing::instrument(
+        level = "debug",
+        skip(self, options),
+        fields(matrix = %self.ops.session, input = input.get(), output = output.get())
+    )]
+    pub async fn route_with(
+        &mut self,
+        input: Port,
+        output: Port,
+        options: RouteOptions,
+    ) -> Result<RouteOutcome, OpError> {
+        let input = self.ops.check_port(input)?;
+        let output = self.ops.check_output(output)?;
+
+        self.ops.require(RequestKind::MatrixRoute)?;
+        self.ops.session.exchange(Request::MatrixRoute { input, output }).await?;
+
+        self.confirm(options, |routing| match routing.input_for(output) {
+            Some(found) if found == input => Ok(()),
+            // The matrix answered, and it disagrees. Fail loudly, as a KVM does.
+            Some(found) => Err(OpError::VerificationFailed { expected: input, found }),
+            None => Ok(()),
+        })
+        .await
+    }
+
+    /// Routes one input to every output.
+    ///
+    /// # Errors
+    ///
+    /// As [`route_with`](Self::route_with), except that every output is checked.
+    #[tracing::instrument(level = "debug", skip(self), fields(matrix = %self.ops.session, input = input.get()))]
+    pub async fn route_all(&mut self, input: Port) -> Result<RouteOutcome, OpError> {
+        let input = self.ops.check_port(input)?;
+        self.ops.require(RequestKind::MatrixRouteAll)?;
+        self.ops.session.exchange(Request::MatrixRouteAll(input)).await?;
+
+        let options = self.defaults;
+        self.confirm(options, |routing| match routing.links.iter().find(|(_, fed)| *fed != input) {
+            None => Ok(()),
+            Some((_, found)) => Err(OpError::VerificationFailed { expected: input, found: *found }),
+        })
+        .await
+    }
+
+    /// Mirrors input 1 to output 1, 2 to 2, and so on.
+    ///
+    /// # Errors
+    ///
+    /// As [`route_with`](Self::route_with).
+    #[tracing::instrument(level = "debug", skip(self), fields(matrix = %self.ops.session))]
+    pub async fn mirror(&mut self) -> Result<RouteOutcome, OpError> {
+        self.ops.require(RequestKind::MatrixMirror)?;
+        self.ops.session.exchange(Request::MatrixMirror).await?;
+
+        let options = self.defaults;
+        self.confirm(options, |routing| {
+            match routing.links.iter().find(|(output, input)| output != input) {
+                None => Ok(()),
+                Some((output, input)) => {
+                    Err(OpError::VerificationFailed { expected: *output, found: *input })
+                }
+            }
+        })
+        .await
+    }
 }

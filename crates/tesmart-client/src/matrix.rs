@@ -370,3 +370,135 @@ impl<C: Connector> Matrix<C> {
         self.ops.spec.support(RequestKind::MatrixReadRouting).is_available()
     }
 }
+
+/// Builds a [`Matrix`].
+pub struct MatrixBuilder<C: Connector> {
+    connector: C,
+    model: Option<&'static ModelInfo>,
+    inputs: Option<PortCount>,
+    outputs: Option<PortCount>,
+    overrides: Vec<(RequestKind, Support)>,
+    protocol: Policy,
+    connection: Option<ConnectionPolicy>,
+    operation_timeout: Option<Duration>,
+    defaults: RouteOptions,
+}
+
+impl<C: Connector> MatrixBuilder<C> {
+    fn new(connector: C) -> Self {
+        Self {
+            connector,
+            model: None,
+            inputs: None,
+            outputs: None,
+            overrides: Vec::new(),
+            protocol: Policy::DEFAULT,
+            connection: None,
+            operation_timeout: None,
+            defaults: RouteOptions::default(),
+        }
+    }
+
+    /// Takes the port counts and capabilities from a registry entry.
+    #[must_use]
+    pub fn model(mut self, model: &'static ModelInfo) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    /// Sets the input count, overriding the model's.
+    #[must_use]
+    pub fn inputs(mut self, inputs: PortCount) -> Self {
+        self.inputs = Some(inputs);
+        self
+    }
+
+    /// Sets the output count, overriding the model's.
+    #[must_use]
+    pub fn outputs(mut self, outputs: PortCount) -> Self {
+        self.outputs = Some(outputs);
+        self
+    }
+
+    /// Records something you have tested on your own unit.
+    #[must_use]
+    pub fn assume(mut self, kind: RequestKind, support: Support) -> Self {
+        self.overrides.push((kind, support));
+        self
+    }
+
+    /// Sets the protocol timings and ASCII dialect.
+    #[must_use]
+    pub fn protocol_policy(mut self, policy: Policy) -> Self {
+        self.protocol = policy;
+        self
+    }
+
+    /// Sets when connections are opened and closed.
+    #[must_use]
+    pub fn connection_policy(mut self, policy: ConnectionPolicy) -> Self {
+        self.connection = Some(policy);
+        self
+    }
+
+    /// Sets how long a single operation may take.
+    #[must_use]
+    pub fn operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the options [`Matrix::route`] uses.
+    #[must_use]
+    pub fn route_defaults(mut self, options: RouteOptions) -> Self {
+        self.defaults = options;
+        self
+    }
+
+    /// Builds the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::NoPortCount`] if neither a model nor an input count was given, and
+    /// [`BuildError::WrongFamily`] if the model is not a matrix.
+    pub fn build(self) -> Result<Matrix<C>, BuildError> {
+        // The model's own family wins, so pointing this at a KVM entry is refused rather than
+        // overridden. Without a model there is only one family this builder can mean.
+        let family = self.model.map_or(Family::Matrix, |model| model.family);
+        let Parts { mut spec } =
+            Parts::resolve(self.model, Some(family), self.inputs, self.outputs, Wanted::Matrix)?;
+        for (kind, support) in self.overrides {
+            spec = spec.with_capability(kind, support);
+        }
+
+        let mut session = Session::with_policy(self.connector, spec.family, self.protocol);
+        if let Some(policy) = self.connection {
+            session.set_connection_policy(policy);
+        }
+        if let Some(timeout) = self.operation_timeout {
+            session.set_operation_timeout(timeout);
+        }
+
+        Ok(Matrix { ops: Ops::new(session, spec), defaults: self.defaults })
+    }
+}
+
+impl<C: Connector> core::fmt::Debug for Matrix<C> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Matrix")
+            .field("spec", &self.ops.spec)
+            .field("session", &self.ops.session)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C: Connector> core::fmt::Debug for MatrixBuilder<C> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MatrixBuilder")
+            .field("matrix", &format_args!("{}", self.connector))
+            .field("model", &self.model.map(|model| model.key))
+            .field("inputs", &self.inputs)
+            .field("outputs", &self.outputs)
+            .finish_non_exhaustive()
+    }
+}

@@ -79,3 +79,50 @@ impl RouteOptions {
         self
     }
 }
+
+/// An HDMI matrix, with operations gated on what the model documents.
+pub struct Matrix<C: Connector> {
+    ops: Ops<C>,
+    defaults: RouteOptions,
+}
+
+impl<C: Connector> Matrix<C> {
+    /// Starts building a matrix handle.
+    pub fn builder(connector: C) -> MatrixBuilder<C> {
+        MatrixBuilder::new(connector)
+    }
+
+    /// A handle to a catalogued matrix.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::WrongFamily`] if the model is not a matrix.
+    pub fn from_model(connector: C, model: &'static ModelInfo) -> Result<Self, BuildError> {
+        MatrixBuilder::new(connector).model(model).build()
+    }
+
+    /// What the matrix is believed to be.
+    pub fn spec(&self) -> &ModelSpec {
+        &self.ops.spec
+    }
+
+    /// How many inputs it has.
+    pub fn inputs(&self) -> PortCount {
+        self.ops.spec.ports
+    }
+
+    /// How many outputs it has.
+    pub fn outputs(&self) -> PortCount {
+        self.ops.spec.outputs
+    }
+
+    /// The underlying session, for raw exchanges and statistics.
+    pub fn session(&self) -> &Session<C, Family> {
+        &self.ops.session
+    }
+
+    /// The underlying session.
+    pub fn session_mut(&mut self) -> &mut Session<C, Family> {
+        &mut self.ops.session
+    }
+}

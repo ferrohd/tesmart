@@ -316,4 +316,57 @@ impl<C: Connector> Matrix<C> {
     ) -> Result<NetOutcome, OpError> {
         self.ops.set_network(changes, confirmed).await
     }
+
+    /// Reads the routing without the capability check.
+    async fn read_routing(&mut self) -> Result<RoutingReport, OpError> {
+        match self.ops.session.exchange(Request::MatrixReadRouting).await? {
+            Response::Routing(reply) => {
+                Ok(RoutingReport::new(&reply, self.ops.warnings(RequestKind::MatrixReadRouting)))
+            }
+            other => Err(OpError::UnexpectedResponse {
+                kind: other.kind(),
+                asked: RequestKind::MatrixReadRouting,
+            }),
+        }
+    }
+
+    /// Reads the routing back and checks it, where that is possible and wanted.
+    async fn confirm(
+        &mut self,
+        options: RouteOptions,
+        check: impl FnOnce(&RoutingReport) -> Result<(), OpError>,
+    ) -> Result<RouteOutcome, OpError> {
+        let reason = match options.verify {
+            VerifyRouting::No => Some(Unverified::Disabled),
+            VerifyRouting::Yes if !self.can_verify() => Some(Unverified::ModelCannotRead {
+                support: self.ops.spec.support(RequestKind::MatrixReadRouting),
+            }),
+            VerifyRouting::Yes => None,
+        };
+        if let Some(reason) = reason {
+            return Ok(RouteOutcome::Unverified {
+                reason,
+                warnings: self.ops.warnings(RequestKind::MatrixRoute),
+            });
+        }
+
+        tokio::time::sleep(options.settle).await;
+        match self.read_routing().await {
+            Ok(routing) => {
+                check(&routing)?;
+                Ok(RouteOutcome::Verified { routing })
+            }
+            Err(OpError::Client(ClientError::NoReply { attempts, .. })) => {
+                Ok(RouteOutcome::Unverified {
+                    reason: Unverified::NoReply { attempts },
+                    warnings: self.ops.warnings(RequestKind::MatrixReadRouting),
+                })
+            }
+            Err(other) => Err(other),
+        }
+    }
+
+    fn can_verify(&self) -> bool {
+        self.ops.spec.support(RequestKind::MatrixReadRouting).is_available()
+    }
 }

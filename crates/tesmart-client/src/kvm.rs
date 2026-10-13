@@ -477,3 +477,170 @@ impl<C: Connector> Kvm<C> {
         }
     }
 }
+
+/// Builds a [`Kvm`].
+///
+/// The family and port count have to come from somewhere: a registry entry, or explicitly. There
+/// is deliberately no default, because the same opcode means different things in different
+/// families and guessing from a model name is how you change the wrong setting.
+pub struct KvmBuilder<C: Connector> {
+    connector: C,
+    model: Option<&'static ModelInfo>,
+    family: Option<Family>,
+    ports: Option<PortCount>,
+    overrides: Vec<(RequestKind, Support)>,
+    protocol: Policy,
+    connection: Option<ConnectionPolicy>,
+    operation_timeout: Option<Duration>,
+    defaults: SwitchOptions,
+}
+
+impl<C: Connector> KvmBuilder<C> {
+    fn new(connector: C) -> Self {
+        Self {
+            connector,
+            model: None,
+            family: None,
+            ports: None,
+            overrides: Vec::new(),
+            protocol: Policy::DEFAULT,
+            connection: None,
+            operation_timeout: None,
+            defaults: SwitchOptions::default(),
+        }
+    }
+
+    /// Takes family, ports and capabilities from a registry entry.
+    #[must_use]
+    pub fn model(mut self, model: &'static ModelInfo) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    /// Sets the protocol family, overriding the model's.
+    #[must_use]
+    pub fn family(mut self, family: Family) -> Self {
+        self.family = Some(family);
+        self
+    }
+
+    /// Sets the port count, overriding the model's.
+    #[must_use]
+    pub fn ports(mut self, ports: PortCount) -> Self {
+        self.ports = Some(ports);
+        self
+    }
+
+    /// Records something you have tested on your own unit, such as reading the port on a P23.
+    #[must_use]
+    pub fn assume(mut self, kind: RequestKind, support: Support) -> Self {
+        self.overrides.push((kind, support));
+        self
+    }
+
+    /// Sets the protocol timings and ASCII dialect.
+    #[must_use]
+    pub fn protocol_policy(mut self, policy: Policy) -> Self {
+        self.protocol = policy;
+        self
+    }
+
+    /// Sets when connections are opened and closed.
+    ///
+    /// Without this, the transport's own [preference](Connector::preferred_policy) is used:
+    /// per command over TCP, persistent over a serial line.
+    #[must_use]
+    pub fn connection_policy(mut self, policy: ConnectionPolicy) -> Self {
+        self.connection = Some(policy);
+        self
+    }
+
+    /// Sets how long a single operation may take.
+    #[must_use]
+    pub fn operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the options [`Kvm::switch`] uses.
+    #[must_use]
+    pub fn switch_defaults(mut self, options: SwitchOptions) -> Self {
+        self.defaults = options;
+        self
+    }
+
+    /// Builds the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::NoFamily`] or [`BuildError::NoPortCount`] if neither a model nor explicit
+    /// values were given, and [`BuildError::WrongFamily`] for an HDMI matrix, which needs
+    /// [`Matrix`](crate::Matrix) instead.
+    pub fn build(self) -> Result<Kvm<C>, BuildError> {
+        let Parts { mut spec } =
+            Parts::resolve(self.model, self.family, self.ports, None, Wanted::Kvm)?;
+        for (kind, support) in self.overrides {
+            spec = spec.with_capability(kind, support);
+        }
+
+        let mut session = Session::with_policy(self.connector, spec.family, self.protocol);
+        // Only override what the transport asked for if the caller said something.
+        if let Some(policy) = self.connection {
+            session.set_connection_policy(policy);
+        }
+        if let Some(timeout) = self.operation_timeout {
+            session.set_operation_timeout(timeout);
+        }
+
+        Ok(Kvm { ops: Ops::new(session, spec), defaults: self.defaults })
+    }
+}
+
+/// The handle could not be built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum BuildError {
+    /// No protocol family was given, and none could be inferred.
+    ///
+    /// Not inferred from a model name on purpose: `0x03` sets the display timeout on a
+    /// single-monitor switch and steps output A's input on a dual-monitor one.
+    #[error("no protocol family: give a model from the registry, or a family explicitly")]
+    NoFamily,
+
+    /// No port count was given, and none could be inferred.
+    #[error("no port count: give a model from the registry, or a port count explicitly")]
+    NoPortCount,
+
+    /// The model speaks a family this operation type cannot drive.
+    ///
+    /// Matrices and KVM switches share a default address and nothing else, so each has its own
+    /// operation type: [`Kvm`] and [`Matrix`](crate::Matrix).
+    #[error("expected {expected}, but this model speaks the {actual} protocol")]
+    WrongFamily {
+        /// What the operation type drives.
+        expected: &'static str,
+        /// What the model actually speaks.
+        actual: Family,
+    },
+}
+
+impl<C: Connector> core::fmt::Debug for Kvm<C> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Kvm")
+            .field("spec", &self.ops.spec)
+            .field("session", &self.ops.session)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C: Connector> core::fmt::Debug for KvmBuilder<C> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("KvmBuilder")
+            .field("switch", &format_args!("{}", self.connector))
+            .field("model", &self.model.map(|model| model.key))
+            .field("family", &self.family)
+            .field("ports", &self.ports)
+            .field("overrides", &self.overrides)
+            .finish_non_exhaustive()
+    }
+}

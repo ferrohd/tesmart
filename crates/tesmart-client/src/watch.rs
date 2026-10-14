@@ -91,3 +91,109 @@ impl core::fmt::Display for PortChange {
         }
     }
 }
+
+/// An open watch on a switch.
+///
+/// Holds the connection open for as long as it lives, because a switch only pushes reports to a
+/// connected client. Dropping it restores the session's previous connection policy; call
+/// [`close`](Watch::close) to also close the connection, which is what makes the switch stop
+/// pushing.
+#[derive(Debug)]
+pub struct Watch<'a, C: Connector> {
+    kvm: &'a mut Kvm<C>,
+    options: WatchOptions,
+    previous_policy: ConnectionPolicy,
+    last_known: Option<Port>,
+    next_poll: Option<Instant>,
+}
+
+impl<'a, C: Connector> Watch<'a, C> {
+    pub(crate) fn new(kvm: &'a mut Kvm<C>, options: WatchOptions) -> Self {
+        let previous_policy = kvm.session().connection_policy();
+        kvm.session_mut().set_connection_policy(ConnectionPolicy::Persistent);
+
+        // Polling needs a read command; without one, listening is all there is.
+        let can_poll = kvm.spec().may_attempt(RequestKind::ReadActivePort);
+        let poll_interval = options.poll_interval.filter(|_| can_poll);
+        if options.poll_interval.is_some() && !can_poll {
+            tracing::debug!(
+                target: "tesmart::op",
+                "polling disabled: this model cannot report its active port"
+            );
+        }
+
+        Self {
+            kvm,
+            options: WatchOptions { poll_interval },
+            previous_policy,
+            last_known: None,
+            next_poll: poll_interval.map(|interval| Instant::now() + interval),
+        }
+    }
+
+    /// The last port this watch knows about.
+    pub fn last_known(&self) -> Option<Port> {
+        self.last_known
+    }
+
+    /// The options actually in use, after capability checks.
+    pub fn options(&self) -> WatchOptions {
+        self.options
+    }
+
+    /// Records a starting point, so the first change is reported relative to it.
+    ///
+    /// # Errors
+    ///
+    /// The read's failure. Harmless to skip: without it, the first change simply has no
+    /// `previous`.
+    pub async fn prime(&mut self) -> Result<Port, OpError> {
+        let port = self.kvm.active_port().await?;
+        self.last_known = Some(port);
+        Ok(port)
+    }
+
+    /// Waits for the next change.
+    ///
+    /// # Errors
+    ///
+    /// A transport failure, or a poll that fails for a reason other than silence.
+    pub async fn next_change(&mut self) -> Result<PortChange, OpError> {
+        loop {
+            // A poll that is already due goes first: it is the cheaper way to catch up after a
+            // long gap.
+            if let Some(due) = self.next_poll
+                && Instant::now() >= due
+            {
+                self.next_poll = self.options.poll_interval.map(|interval| due + interval);
+                if let Some(change) = self.poll().await? {
+                    return Ok(change);
+                }
+                continue;
+            }
+
+            let event = match self.next_poll {
+                Some(due) => {
+                    tokio::select! {
+                        event = self.kvm.session_mut().next_event() => Some(event?),
+                        () = tokio::time::sleep_until(due) => None,
+                    }
+                }
+                None => Some(self.kvm.session_mut().next_event().await?),
+            };
+
+            if let Some(Event::PortChanged(port)) = event
+                && let Some(change) = self.accept(port, ChangeSource::Reported)
+            {
+                return Ok(change);
+            }
+        }
+    }
+
+    /// Closes the connection, which is what stops the switch pushing reports.
+    ///
+    /// Dropping the watch cannot do this, because closing needs to await.
+    pub async fn close(self) {
+        self.kvm.session_mut().disconnect().await;
+        // `Drop` restores the connection policy.
+    }

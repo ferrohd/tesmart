@@ -17,5 +17,14 @@ tokio = { workspace = true, features = ["io-util", "time", "macros"] }
 tracing = { workspace = true }
 thiserror = { workspace = true, features = ["std"] }
 
+[dev-dependencies]
+# Cyclic dev-dependency: tesmart-sim depends on this crate for `Connector`. Declared by path
+# with **no version on purpose** — cargo drops a version-less dev-dependency when packaging,
+# which is the only way either crate can be published a first time. The published .crate
+# therefore cannot run its own tests, which is normal and expected.
+tesmart-sim = { path = "../tesmart-sim" }
+tokio = { workspace = true, features = ["io-util", "time", "rt", "macros", "test-util"] }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+
 [lints]
 workspace = true

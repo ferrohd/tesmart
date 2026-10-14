@@ -18,6 +18,8 @@ tesmart-client = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "time", "rt", "net", "sync", "macros"] }
 tracing = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "test-util", "io-util", "net", "time"] }
 
 [lints]
 workspace = true

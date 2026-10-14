@@ -218,3 +218,40 @@ impl Simulator {
         self.inner.device.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
+
+/// Opens in-process connections to a [`Simulator`].
+#[derive(Debug, Clone)]
+pub struct InProcess {
+    simulator: Simulator,
+}
+
+impl std::fmt::Display for InProcess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "sim://{}", self.simulator.inner.label)
+    }
+}
+
+impl Connector for InProcess {
+    type Io = DuplexStream;
+
+    /// Connecting to an in-process switch cannot block, so this future is ready immediately.
+    fn connect(&self) -> impl Future<Output = Result<Self::Io, TransportError>> + Send {
+        let (client, switch) = tokio::io::duplex(PIPE_CAPACITY);
+        let simulator = self.simulator.clone();
+        // Counted here rather than in the serving task, so a test can assert on it immediately
+        // after the connect future resolves.
+        simulator.inner.connections.fetch_add(1, Ordering::Relaxed);
+
+        tokio::spawn(async move {
+            if let Err(error) = simulator.serve_io(switch).await {
+                tracing::debug!(target: "tesmart::sim", %error, "pipe ended");
+            }
+        });
+
+        core::future::ready(Ok(client))
+    }
+
+    fn kind(&self) -> TransportKind {
+        TransportKind::Simulated
+    }
+}

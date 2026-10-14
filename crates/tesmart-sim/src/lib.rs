@@ -11,6 +11,28 @@
 //! One emulated switch can accept many connections in sequence and keeps its state across them,
 //! which is what makes the default connection-per-command policy testable.
 //!
+//! ```
+//! # #[tokio::main(flavor = "current_thread")] async fn main() {
+//! use tesmart_client::Session;
+//! use tesmart_proto::engine::Policy;
+//! use tesmart_proto::{Port, Request, Response, model, profile::Kvm};
+//! use tesmart_sim::Simulator;
+//!
+//! let sim = Simulator::from_model(model::lookup("HKS1601-EB23").unwrap());
+//! let handle = sim.handle();
+//!
+//! // `IMMEDIATE` drops the 1 s command spacing. Against hardware, use `Policy::DEFAULT`.
+//! let mut session = Session::with_policy(sim.connector(), Kvm, Policy::IMMEDIATE);
+//!
+//! session.exchange(Request::Switch(Port::new(4).unwrap())).await.unwrap();
+//! let active = session.exchange(Request::ReadActivePort).await.unwrap();
+//! assert_eq!(active, Response::ActivePort(Port::new(4).unwrap()));
+//!
+//! // someone walks up and presses a button
+//! handle.press_button(Port::new(2).unwrap());
+//! assert_eq!(handle.snapshot().active_port.get(), 2);
+//! # }
+//! ```
 //!
 //! Note the read after the write: a switch command has no reply, so
 //! [`Session::exchange`](tesmart_client::Session::exchange) returns as soon as the bytes are
@@ -253,5 +275,103 @@ impl Connector for InProcess {
 
     fn kind(&self) -> TransportKind {
         TransportKind::Simulated
+    }
+}
+
+/// Pokes an emulated switch from outside the protocol: the equivalent of walking up to it.
+#[derive(Debug, Clone)]
+pub struct SimHandle {
+    inner: Arc<Shared>,
+}
+
+impl SimHandle {
+    /// Presses a front panel button: changes the port **and** pushes an unsolicited report.
+    pub fn press_button(&self, port: Port) {
+        self.with_device(|device| device.press_button(port));
+    }
+
+    /// Changes the port without telling anyone, like firmware that pushes no reports.
+    pub fn force_port(&self, port: Port) {
+        self.with_device(|device| device.force_port(port));
+    }
+
+    /// Replaces the fault configuration.
+    pub fn set_faults(&self, faults: Faults) {
+        self.with_device(|device| device.set_faults(faults));
+    }
+
+    /// The switch's current settings.
+    pub fn snapshot(&self) -> DeviceState {
+        self.with_device(|device| *device.state())
+    }
+
+    /// How many connections have been opened since the simulator was created.
+    ///
+    /// Counts connections made through a connector and TCP connections accepted by
+    /// [`Simulator::serve`]; a stream handed straight to
+    /// [`serve_io`](Simulator::serve_io) is not counted, because nothing opened it. Makes
+    /// [`ConnectionPolicy`](tesmart_client::ConnectionPolicy) directly assertable.
+    pub fn connections(&self) -> u64 {
+        self.inner.connections.load(Ordering::Relaxed)
+    }
+
+    /// Waits until the emulated switch's state satisfies `predicate`.
+    ///
+    /// Needed because commands that have no reply return as soon as the bytes are written: the
+    /// task driving the switch may not have run yet. Yields rather than sleeping, so it costs no
+    /// time even under a paused clock.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the predicate is still false after 10,000 yields, which means it is never going
+    /// to be true.
+    pub async fn settle(&self, predicate: impl Fn(&DeviceState) -> bool) {
+        for _ in 0..10_000 {
+            if predicate(&self.snapshot()) {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("the emulated switch never reached the expected state: {:?}", self.snapshot());
+    }
+
+    /// Runs `f` against the emulated switch.
+    ///
+    /// Synchronous on purpose: a test should be able to press a button without awaiting. The
+    /// lock is only ever held for the length of one state update.
+    fn with_device<T>(&self, f: impl FnOnce(&mut Device) -> T) -> T {
+        let result = {
+            let mut device = self.inner.device.lock().unwrap_or_else(PoisonError::into_inner);
+            f(&mut device)
+        };
+        // `notify_one` stores a permit, so a press that happens before the connection task
+        // starts waiting is still delivered.
+        self.inner.wake.notify_one();
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tesmart_proto::model;
+
+    #[tokio::test]
+    async fn serves_an_in_process_connection() {
+        let sim = Simulator::from_model(model::lookup("HKS801-EB23").unwrap());
+        let handle = sim.handle();
+        let connector = sim.connector();
+
+        let mut io = connector.connect().await.unwrap();
+        io.write_all(&[0xAA, 0xBB, 0x03, 0x01, 0x03, 0xEE]).await.unwrap();
+
+        // the read side of the reply: ask for the active port
+        io.write_all(&[0xAA, 0xBB, 0x03, 0x10, 0x00, 0xEE]).await.unwrap();
+        let mut reply = [0u8; 6];
+        io.read_exact(&mut reply).await.unwrap();
+
+        assert_eq!(reply, [0xAA, 0xBB, 0x03, 0x11, 0x02, 0xEE]);
+        assert_eq!(handle.snapshot().active_port.get(), 3);
+        assert_eq!(handle.connections(), 1);
     }
 }

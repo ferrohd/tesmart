@@ -42,6 +42,7 @@ mod outcome;
 mod session;
 mod spec;
 mod transport;
+mod watch;
 
 pub use crate::error::{ClientError, ErrorClass, OpError};
 pub use crate::kvm::{BuildError, Kvm, KvmBuilder, SwitchOptions, Verify};
@@ -53,3 +54,4 @@ pub use crate::outcome::{
 pub use crate::session::{Session, Stats};
 pub use crate::spec::ModelSpec;
 pub use crate::transport::{ConnectionPolicy, Connector, TransportError, TransportKind};
+pub use crate::watch::{ChangeSource, PortChange, Watch, WatchOptions};

@@ -4,6 +4,7 @@ members = [
   "crates/tesmart-client",
   "crates/tesmart-device",
   "crates/tesmart-proto",
+  "crates/tesmart-sim",
 ]
 
 [workspace.package]
@@ -14,8 +15,17 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ferrohd/tesmart"
 
 [workspace.dependencies]
+# Workspace crates.
+#
+# Each carries a version as well as a path, which is what `cargo publish` requires. The one
+# exception is the *dev*-dependency on tesmart-sim in tesmart-client, tesmart-tcp and
+# tesmart-serial: tesmart-sim depends on tesmart-client, so a versioned dev-dependency would
+# make the first publish of either impossible. Those three declare it by path alone, which
+# cargo drops from the published manifest. See their own manifests.
 tesmart-proto = { path = "crates/tesmart-proto", version = "0.1.0" }
+tesmart-device = { path = "crates/tesmart-device", version = "0.1.0" }
 tesmart-client = { path = "crates/tesmart-client", version = "0.1.0" }
+tesmart-sim = { path = "crates/tesmart-sim", version = "0.1.0" }
 
 # Core
 thiserror = { version = "2.0.21", default-features = false }

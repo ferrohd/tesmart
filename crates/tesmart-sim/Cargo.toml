@@ -1,0 +1,23 @@
+[package]
+name = "tesmart-sim"
+description = "Serves a tesmart-device over TCP or an in-process pipe, as a Connector for tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["tesmart", "kvm", "simulator", "testing"]
+categories = ["development-tools::testing", "network-programming"]
+
+[dependencies]
+tesmart-proto = { workspace = true }
+# The device state machine. This crate only adds the IO: a socket, an in-process pipe, and a
+# `Connector` so the rest of the workspace can point at it.
+tesmart-device = { workspace = true }
+tesmart-client = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "time", "rt", "net", "sync", "macros"] }
+tracing = { workspace = true }
+
+
+[lints]
+workspace = true

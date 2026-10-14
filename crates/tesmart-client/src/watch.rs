@@ -197,3 +197,34 @@ impl<'a, C: Connector> Watch<'a, C> {
         self.kvm.session_mut().disconnect().await;
         // `Drop` restores the connection policy.
     }
+
+    async fn poll(&mut self) -> Result<Option<PortChange>, OpError> {
+        match self.kvm.session_mut().exchange(Request::ReadActivePort).await {
+            Ok(Response::ActivePort(port)) => Ok(self.accept(port, ChangeSource::Polled)),
+            Ok(_) => Ok(None),
+            // A silent read is normal on this hardware; keep watching.
+            Err(ClientError::NoReply { .. }) => {
+                tracing::debug!(target: "tesmart::op", "poll went unanswered");
+                Ok(None)
+            }
+            Err(other) => Err(other.into()),
+        }
+    }
+
+    /// Turns an observation into a change, unless it is what we already knew.
+    fn accept(&mut self, port: Port, source: ChangeSource) -> Option<PortChange> {
+        if self.last_known == Some(port) {
+            return None;
+        }
+        let previous = self.last_known.replace(port);
+        Some(PortChange { port, previous, source })
+    }
+}
+
+impl<C: Connector> Drop for Watch<'_, C> {
+    fn drop(&mut self) {
+        // The connection cannot be closed from `drop` (that needs an await), but the policy can
+        // be put back, so the next command behaves as the caller configured it.
+        self.kvm.session_mut().set_connection_policy(self.previous_policy);
+    }
+}

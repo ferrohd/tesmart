@@ -14,6 +14,55 @@
 //! | [`Kvm`] | KVM operations, gated on what the model is known to support |
 //! | [`Matrix`] | HDMI matrix operations, which are a different protocol entirely |
 //!
+//! # What an operation can promise
+//!
+//! The protocol acknowledges almost nothing. Of the commands a single-monitor KVM understands,
+//! only reading the active port and writing network settings produce a reply, and several models
+//! cannot even do the former. Operations therefore return outcomes rather than `()`:
+//!
+//! | Operation | Best case | Honest worst case |
+//! | --- | --- | --- |
+//! | [`Kvm::switch`] | [`SwitchOutcome::Verified`] | [`SwitchOutcome::Unverified`]: sent, nothing can confirm it |
+//! | [`Kvm::active_port`] | the port | [`OpError::Unsupported`]: this model cannot be read |
+//! | [`Kvm::set_buzzer`] and the other settings | [`Sent`] | the same [`Sent`]: no series can read these back |
+//! | [`Kvm::network`] | all four values | the values that answered, with the rest in [`NetReport::missing`] |
+//! | [`Kvm::set_network`] | values that read back as written | [`NetOutcome::mismatched`], plus the power-cycle warning |
+//! | [`Kvm::watch`] | changes as they happen | nothing, on firmware that neither pushes nor reads |
+//! | [`Matrix::route`] | [`RouteOutcome::Verified`] | [`RouteOutcome::Unverified`] |
+//!
+//! A switch that *answers* with the wrong port is the one case that fails loudly:
+//! [`OpError::VerificationFailed`].
+//!
+//! # Matrices are the exception
+//!
+//! A matrix can report its whole routing table, so [`Matrix::route`] is the only *write* in any
+//! TESmart family whose effect can be confirmed. Everything a KVM can set is write-only.
+//!
+//! # Example
+//!
+//! ```
+//! # #[tokio::main(flavor = "current_thread")] async fn main() {
+//! use tesmart_client::{Kvm, SwitchOutcome};
+//! use tesmart_proto::engine::Policy;
+//! use tesmart_proto::{Port, model};
+//! use tesmart_sim::Simulator;
+//!
+//! let model = model::lookup("HKS1601-EB23").unwrap();
+//! let sim = Simulator::from_model(model);           // stands in for the real switch
+//!
+//! let mut kvm = Kvm::builder(sim.connector())
+//!     .model(model)
+//!     .protocol_policy(Policy::IMMEDIATE)           // no 1 s command spacing in an example
+//!     .build()
+//!     .unwrap();
+//!
+//! let outcome = kvm.switch(Port::new(4).unwrap()).await.unwrap();
+//!
+//! // This model can report its port, so the switch was confirmed rather than assumed.
+//! assert!(outcome.is_confirmed());
+//! assert_eq!(outcome, SwitchOutcome::Verified { port: Port::new(4).unwrap(), attempts: 1 });
+//! # }
+//! ```
 //!
 //! # Timings
 //!

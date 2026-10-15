@@ -562,6 +562,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesmart"
+version = "0.1.0"
+dependencies = [
+ "tesmart-client",
+ "tesmart-proto",
+ "tesmart-serial",
+ "tesmart-sim",
+ "tesmart-tcp",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "tesmart-client"
 version = "0.1.0"
 dependencies = [

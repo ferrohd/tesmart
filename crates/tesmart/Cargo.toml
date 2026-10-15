@@ -1,0 +1,52 @@
+[package]
+name = "tesmart"
+description = "Control TESmart KVM switches and HDMI matrices over TCP or RS232"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["tesmart", "kvm", "matrix", "rs232", "hdmi"]
+categories = ["network-programming", "asynchronous", "hardware-support"]
+
+[features]
+# TCP is the transport almost everyone wants: every switch ships with its LAN port on
+# 192.168.1.10:5000.
+default = ["tcp"]
+# The switch's LAN port.
+tcp = ["dep:tesmart-tcp", "_transport"]
+# The switch's RS232 port. Off by default because a TCP-only caller should not pay for it;
+# there is no system library to install either way.
+serial = ["dep:tesmart-serial", "_transport"]
+# An emulated switch, for tests and for trying things without hardware.
+sim = ["dep:tesmart-sim", "_transport"]
+# `serde` derives on the protocol value types.
+serde = ["tesmart-proto/serde"]
+
+# Internal, do not enable directly: set by every transport feature, so that target resolution
+# and `AnyConnector` compile only when there is at least one transport for them to choose
+# between. An enum with no variants cannot be matched on.
+_transport = []
+
+[dependencies]
+tesmart-proto = { workspace = true }
+tesmart-client = { workspace = true }
+tesmart-tcp = { workspace = true, optional = true }
+tesmart-serial = { workspace = true, optional = true }
+tesmart-sim = { workspace = true, optional = true }
+
+# Only for the `AsyncRead`/`AsyncWrite` traits that `AnyIo` delegates. No features needed:
+# tokio exposes the IO traits unconditionally.
+tokio = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time", "io-util", "test-util"] }
+
+# Every transport, so the re-exports and `AnyConnector` are all exercised.
+[package.metadata.docs.rs]
+all-features = true
+
+[lints]
+workspace = true

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/tesmart",
   "crates/tesmart-client",
   "crates/tesmart-device",
   "crates/tesmart-proto",
@@ -24,6 +25,7 @@ repository = "https://github.com/ferrohd/tesmart"
 # tesmart-serial: tesmart-sim depends on tesmart-client, so a versioned dev-dependency would
 # make the first publish of either impossible. Those three declare it by path alone, which
 # cargo drops from the published manifest. See their own manifests.
+tesmart = { path = "crates/tesmart", version = "0.1.0" }
 tesmart-proto = { path = "crates/tesmart-proto", version = "0.1.0" }
 tesmart-device = { path = "crates/tesmart-device", version = "0.1.0" }
 tesmart-client = { path = "crates/tesmart-client", version = "0.1.0" }

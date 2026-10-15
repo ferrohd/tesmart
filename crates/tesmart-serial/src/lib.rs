@@ -399,3 +399,105 @@ fn into_io_error(error: tokio_serial::Error) -> io::Error {
     };
     io::Error::new(kind, error.description)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(target: &str) -> SerialConnector {
+        target.parse().unwrap_or_else(|error| panic!("{target:?}: {error}"))
+    }
+
+    #[test]
+    fn the_defaults_are_the_documented_line_settings() {
+        let connector = SerialConnector::new("/dev/ttyUSB0");
+
+        assert_eq!(connector.baud(), 9600);
+        assert!(connector.is_exclusive());
+        assert_eq!(connector.open_timeout(), Duration::from_secs(5));
+        assert_eq!(connector.to_string(), "serial:///dev/ttyUSB0@9600");
+        assert_eq!(connector.kind(), TransportKind::Serial);
+        // Opening a tty is not free, so unlike TCP this transport wants one connection.
+        assert_eq!(connector.preferred_policy(), ConnectionPolicy::Persistent);
+    }
+
+    #[test]
+    fn parses_paths_with_and_without_a_scheme_or_baud() {
+        for target in ["/dev/ttyUSB0", "serial:///dev/ttyUSB0", "SERIAL:///dev/ttyUSB0"] {
+            let connector = parse(target);
+            assert_eq!(connector.path(), "/dev/ttyUSB0", "{target}");
+            assert_eq!(connector.baud(), DEFAULT_BAUD, "{target}");
+        }
+
+        for target in ["/dev/ttyUSB0@19200", "serial:///dev/ttyUSB0@19200"] {
+            let connector = parse(target);
+            assert_eq!(connector.path(), "/dev/ttyUSB0");
+            assert_eq!(connector.baud(), 19200);
+        }
+
+        // Windows names and a PTY's baud 0 both have to survive the parser.
+        assert_eq!(parse("COM3").path(), "COM3");
+        assert_eq!(parse("/dev/pts/7@0").baud(), 0);
+    }
+
+    #[test]
+    fn display_round_trips_through_from_str() {
+        for target in ["/dev/ttyUSB0@9600", "/dev/ttyS0@115200", "COM3@9600"] {
+            let connector = parse(target);
+            assert_eq!(connector.to_string(), format!("serial://{target}"));
+            assert_eq!(parse(&connector.to_string()), connector);
+        }
+    }
+
+    #[test]
+    fn another_transports_scheme_is_a_distinct_error() {
+        // The CLI relies on this to try the TCP parser rather than reporting a failure.
+        assert_eq!(
+            "tcp://192.168.1.10:5000".parse::<SerialConnector>(),
+            Err(ParseTargetError::WrongScheme { scheme: "tcp".to_owned() })
+        );
+    }
+
+    #[test]
+    fn rejects_what_is_not_a_target() {
+        assert_eq!("".parse::<SerialConnector>(), Err(ParseTargetError::Empty));
+        assert_eq!("   ".parse::<SerialConnector>(), Err(ParseTargetError::Empty));
+        assert_eq!("serial://".parse::<SerialConnector>(), Err(ParseTargetError::Empty));
+        assert_eq!(
+            "/dev/ttyUSB0@fast".parse::<SerialConnector>(),
+            Err(ParseTargetError::Baud { baud: "fast".to_owned() })
+        );
+    }
+
+    #[test]
+    fn the_line_settings_are_protocol_constants() {
+        let settings = SerialConnector::new("/dev/ttyUSB0").with_baud(9600).settings();
+        // Nothing to assert against but the builder itself; what matters is that the four
+        // non-baud settings are fixed and cannot be configured away.
+        let built = format!("{settings:?}");
+        assert!(built.contains("Eight"), "{built}");
+        assert!(built.contains("None"), "{built}");
+        assert!(built.contains("One"), "{built}");
+    }
+
+    #[test]
+    fn enumeration_does_not_fail_on_this_machine() {
+        // A smoke test: the list may well be empty, but listing must work.
+        let ports = available_ports().expect("ports can be listed");
+        for port in &ports {
+            assert_ne!(port.path, "");
+            assert_ne!(port.to_string(), "");
+            assert_eq!(port.connector().path(), port.path);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_port_that_does_not_exist_names_the_target() {
+        let connector = SerialConnector::new("/dev/tesmart-does-not-exist");
+
+        let error = connector.connect().await.expect_err("there is no such device");
+
+        let message = error.to_string();
+        assert!(message.contains("serial:///dev/tesmart-does-not-exist@9600"), "{message}");
+    }
+}

@@ -390,3 +390,151 @@ pub enum ParseTargetError {
         port: String,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tesmart_client::ConnectionPolicy;
+
+    fn parse(target: &str) -> TcpConnector {
+        target.parse().unwrap_or_else(|error| panic!("{target:?}: {error}"))
+    }
+
+    #[test]
+    fn the_default_is_the_factory_address() {
+        let connector = TcpConnector::default();
+        assert_eq!(connector.to_string(), "tcp://192.168.1.10:5000");
+        assert_eq!(connector.socket_addr(), Some(SocketAddr::from(([192, 168, 1, 10], 5000))));
+        assert_eq!(connector.connect_timeout(), Duration::from_secs(5));
+        assert_eq!(connector.kind(), TransportKind::Tcp);
+        // A socket is cheap to open, and closing it stops unsolicited reports.
+        assert_eq!(connector.preferred_policy(), ConnectionPolicy::PerCommand);
+    }
+
+    #[test]
+    fn parses_addresses_with_and_without_a_port() {
+        for target in ["tcp://192.168.1.10:5000", "192.168.1.10:5000"] {
+            let connector = parse(target);
+            assert_eq!(connector.host(), &Host::Ip(IpAddr::from([192, 168, 1, 10])));
+            assert_eq!(connector.port(), 5000);
+        }
+
+        for target in ["tcp://10.0.2.12", "10.0.2.12", "tcp://10.0.2.12/"] {
+            let connector = parse(target);
+            assert_eq!(connector.host().ip(), Some(IpAddr::from([10, 0, 2, 12])));
+            assert_eq!(connector.port(), DEFAULT_PORT, "{target}");
+        }
+
+        assert_eq!(parse("10.0.2.12:23").port(), 23);
+    }
+
+    #[test]
+    fn parses_names_and_resolves_them_later() {
+        for target in ["kvm.local", "tcp://kvm.local", "kvm.local:5000"] {
+            let connector = parse(target);
+            assert_eq!(connector.host(), &Host::Name("kvm.local".to_owned()));
+            assert_eq!(connector.host().ip(), None, "a name is not resolved at parse time");
+        }
+        assert_eq!(parse("kvm:23").port(), 23);
+        assert_eq!(parse("kvm_1.example.com").to_string(), "tcp://kvm_1.example.com:5000");
+    }
+
+    #[test]
+    fn parses_ipv6_with_and_without_brackets() {
+        // A bare IPv6 literal is full of colons, so it has to be recognised before any split.
+        let connector = parse("fd00::1");
+        assert_eq!(connector.host(), &Host::Ip("fd00::1".parse::<IpAddr>().unwrap()));
+        assert_eq!(connector.port(), DEFAULT_PORT);
+        assert_eq!(connector.to_string(), "tcp://[fd00::1]:5000");
+
+        for target in ["[fd00::1]:5000", "tcp://[fd00::1]:5000"] {
+            let connector = parse(target);
+            assert_eq!(connector.host().ip(), Some("fd00::1".parse::<IpAddr>().unwrap()));
+            assert_eq!(connector.port(), 5000);
+        }
+
+        assert_eq!(parse("[fd00::1]").port(), DEFAULT_PORT);
+        assert_eq!(parse("[::1]:23").port(), 23);
+    }
+
+    #[test]
+    fn display_round_trips_through_from_str() {
+        for target in ["192.168.1.10:5000", "10.0.2.12:23", "kvm.local:5000", "[fd00::1]:5000"] {
+            let connector = parse(target);
+            assert_eq!(connector.to_string(), format!("tcp://{target}"));
+            assert_eq!(parse(&connector.to_string()), connector);
+        }
+    }
+
+    #[test]
+    fn another_transports_scheme_is_a_distinct_error() {
+        // The CLI relies on this to try the serial parser rather than reporting a failure.
+        assert_eq!(
+            "serial:///dev/ttyUSB0".parse::<TcpConnector>(),
+            Err(ParseTargetError::WrongScheme { scheme: "serial".to_owned() })
+        );
+        assert_eq!(
+            "sim://switch".parse::<TcpConnector>(),
+            Err(ParseTargetError::WrongScheme { scheme: "sim".to_owned() })
+        );
+    }
+
+    #[test]
+    fn rejects_what_is_not_a_target() {
+        assert_eq!("".parse::<TcpConnector>(), Err(ParseTargetError::Empty));
+        assert_eq!("   ".parse::<TcpConnector>(), Err(ParseTargetError::Empty));
+        assert_eq!("tcp://".parse::<TcpConnector>(), Err(ParseTargetError::Empty));
+
+        // Port 0 is meaningless for a client.
+        assert!(matches!(
+            "192.168.1.10:0".parse::<TcpConnector>(),
+            Err(ParseTargetError::Port { .. })
+        ));
+        for target in ["192.168.1.10:99999", "192.168.1.10:", "kvm.local:abc"] {
+            assert!(
+                matches!(target.parse::<TcpConnector>(), Err(ParseTargetError::Port { .. })),
+                "{target} should be rejected as a bad port"
+            );
+        }
+
+        // Not a host name: a path.
+        assert!(matches!(
+            "/dev/ttyUSB0".parse::<TcpConnector>(),
+            Err(ParseTargetError::Host { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn the_timeout_error_says_where_it_looked_and_for_how_long() {
+        // The socket behaviour belongs to the operating system; what belongs to this crate is
+        // the mapping, and that is testable without a network.
+        let connector = TcpConnector::default().with_connect_timeout(Duration::from_millis(250));
+        let error = TransportError::connect_timeout(&connector, connector.connect_timeout());
+
+        let message = error.to_string();
+        assert!(message.contains("tcp://192.168.1.10:5000"), "{message}");
+        assert!(message.contains("250ms"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn an_address_needs_no_resolver() {
+        // An address must never reach the blocking pool: that path is only for names, and it is
+        // the only reason this crate enables tokio's `rt` feature.
+        let connector = TcpConnector::default();
+        assert_eq!(
+            connector.addresses().await.unwrap(),
+            vec![SocketAddr::from(([192, 168, 1, 10], 5000))]
+        );
+    }
+
+    #[test]
+    fn builders_are_explicit_about_what_they_change() {
+        let connector = TcpConnector::new(Ipv4Addr::new(10, 0, 2, 12), 5001)
+            .with_connect_timeout(Duration::from_millis(250))
+            .with_nodelay(false);
+
+        assert_eq!(connector.to_string(), "tcp://10.0.2.12:5001");
+        assert_eq!(connector.connect_timeout(), Duration::from_millis(250));
+        assert!(!connector.nodelay);
+    }
+}

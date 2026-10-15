@@ -171,3 +171,150 @@ fn is_windows_com_port(text: &str) -> bool {
 /// syscall underneath.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+pub enum AnyConnector {
+    /// A switch's LAN port.
+    #[cfg(feature = "tcp")]
+    Tcp(tesmart_tcp::TcpConnector),
+
+    /// A switch's RS232 port.
+    #[cfg(feature = "serial")]
+    Serial(tesmart_serial::SerialConnector),
+
+    /// An emulated switch inside this process.
+    #[cfg(feature = "sim")]
+    Sim(tesmart_sim::InProcess),
+}
+
+impl fmt::Display for AnyConnector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(connector) => connector.fmt(f),
+            #[cfg(feature = "serial")]
+            Self::Serial(connector) => connector.fmt(f),
+            #[cfg(feature = "sim")]
+            Self::Sim(connector) => connector.fmt(f),
+        }
+    }
+}
+
+impl Connector for AnyConnector {
+    type Io = AnyIo;
+
+    async fn connect(&self) -> Result<Self::Io, TransportError> {
+        match self {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(connector) => connector.connect().await.map(AnyIo::Tcp),
+            #[cfg(feature = "serial")]
+            Self::Serial(connector) => connector.connect().await.map(AnyIo::Serial),
+            #[cfg(feature = "sim")]
+            Self::Sim(connector) => connector.connect().await.map(AnyIo::Sim),
+        }
+    }
+
+    /// Delegated, and it matters: the session derives the ASCII command scope from this, so a
+    /// matrix reached over RS232 only gets its `MT80xx` commands if this reports `Serial`.
+    fn kind(&self) -> TransportKind {
+        match self {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(connector) => connector.kind(),
+            #[cfg(feature = "serial")]
+            Self::Serial(connector) => connector.kind(),
+            #[cfg(feature = "sim")]
+            Self::Sim(connector) => connector.kind(),
+        }
+    }
+
+    /// Delegated, and it matters: a serial line wants one connection held open, a TCP socket
+    /// wants one per command.
+    fn preferred_policy(&self) -> ConnectionPolicy {
+        match self {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(connector) => connector.preferred_policy(),
+            #[cfg(feature = "serial")]
+            Self::Serial(connector) => connector.preferred_policy(),
+            #[cfg(feature = "sim")]
+            Self::Sim(connector) => connector.preferred_policy(),
+        }
+    }
+}
+
+/// The byte stream an [`AnyConnector`] opens.
+///
+/// Each variant is spelled as the transport's own associated type rather than as a concrete
+/// stream, so this follows along if a transport ever changes what it opens, and so this crate
+/// needs no direct dependency on `tokio::net` or `tokio-serial`.
+///
+/// Every variant is [`Unpin`], which is what lets the delegation below be plain `Pin::new`
+/// with no `unsafe`.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum AnyIo {
+    /// A TCP connection.
+    #[cfg(feature = "tcp")]
+    Tcp(<tesmart_tcp::TcpConnector as Connector>::Io),
+
+    /// An open serial port.
+    #[cfg(feature = "serial")]
+    Serial(<tesmart_serial::SerialConnector as Connector>::Io),
+
+    /// An in-process pipe to an emulated switch.
+    #[cfg(feature = "sim")]
+    Sim(<tesmart_sim::InProcess as Connector>::Io),
+}
+
+impl AsyncRead for AnyIo {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(io) => Pin::new(io).poll_read(cx, buf),
+            #[cfg(feature = "serial")]
+            Self::Serial(io) => Pin::new(io).poll_read(cx, buf),
+            #[cfg(feature = "sim")]
+            Self::Sim(io) => Pin::new(io).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for AnyIo {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(io) => Pin::new(io).poll_write(cx, buf),
+            #[cfg(feature = "serial")]
+            Self::Serial(io) => Pin::new(io).poll_write(cx, buf),
+            #[cfg(feature = "sim")]
+            Self::Sim(io) => Pin::new(io).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(io) => Pin::new(io).poll_flush(cx),
+            #[cfg(feature = "serial")]
+            Self::Serial(io) => Pin::new(io).poll_flush(cx),
+            #[cfg(feature = "sim")]
+            Self::Sim(io) => Pin::new(io).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            #[cfg(feature = "tcp")]
+            Self::Tcp(io) => Pin::new(io).poll_shutdown(cx),
+            #[cfg(feature = "serial")]
+            Self::Serial(io) => Pin::new(io).poll_shutdown(cx),
+            #[cfg(feature = "sim")]
+            Self::Sim(io) => Pin::new(io).poll_shutdown(cx),
+        }
+    }
+}

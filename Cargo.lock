@@ -482,6 +482,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesmart-tcp"
+version = "0.1.0"
+dependencies = [
+ "tesmart-client",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"

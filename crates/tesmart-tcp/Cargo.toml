@@ -1,0 +1,21 @@
+[package]
+name = "tesmart-tcp"
+description = "TCP transport for TESmart KVM switches (the LAN port, 192.168.1.10:5000 by default)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["tesmart", "kvm", "tcp", "transport"]
+categories = ["network-programming"]
+
+[dependencies]
+tesmart-client = { workspace = true }
+# `rt` is needed only for hostname resolution: tokio runs DNS on the blocking pool and panics
+# without it. A numeric target never reaches that path.
+tokio = { workspace = true, features = ["net", "time", "rt"] }
+tracing = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

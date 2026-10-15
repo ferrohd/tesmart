@@ -5,6 +5,7 @@ members = [
   "crates/tesmart-device",
   "crates/tesmart-proto",
   "crates/tesmart-sim",
+  "crates/tesmart-tcp",
 ]
 
 [workspace.package]
@@ -26,6 +27,7 @@ tesmart-proto = { path = "crates/tesmart-proto", version = "0.1.0" }
 tesmart-device = { path = "crates/tesmart-device", version = "0.1.0" }
 tesmart-client = { path = "crates/tesmart-client", version = "0.1.0" }
 tesmart-sim = { path = "crates/tesmart-sim", version = "0.1.0" }
+tesmart-tcp = { path = "crates/tesmart-tcp", version = "0.1.0" }
 
 # Core
 thiserror = { version = "2.0.21", default-features = false }

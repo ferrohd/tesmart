@@ -594,7 +594,10 @@ dependencies = [
 name = "tesmart-serial"
 version = "0.1.0"
 dependencies = [
+ "serialport",
  "tesmart-client",
+ "tesmart-proto",
+ "tesmart-sim",
  "thiserror",
  "tokio",
  "tokio-serial",

@@ -20,5 +20,14 @@ tokio = { workspace = true, features = ["net", "io-util", "time", "rt"] }
 tracing = { workspace = true }
 thiserror = { workspace = true, features = ["std"] }
 
+[dev-dependencies]
+tesmart-proto = { workspace = true }
+# Path only, no version: see tesmart-tcp's manifest for why.
+tesmart-sim = { path = "../tesmart-sim" }
+# Already compiled as a dependency of tokio-serial. Used only for `TTYPort::pair`, which gives
+# the tests a real pseudo terminal to talk to.
+serialport = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util", "time", "rt", "macros", "test-util"] }
+
 [lints]
 workspace = true

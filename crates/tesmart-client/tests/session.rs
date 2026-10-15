@@ -287,3 +287,153 @@ async fn a_closed_connection_is_reported_loudly() {
     assert!(matches!(error, ClientError::Transport(TransportError::Closed)), "{error}");
     assert_eq!(attempts.load(Ordering::Relaxed), 1, "no hidden reconnect");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_connector_that_cannot_connect_names_its_target() {
+    let mut session = Session::new(RefusingConnector, Kvm);
+
+    let error = session.exchange(Request::ReadActivePort).await.unwrap_err();
+
+    assert!(error.to_string().contains("tcp://192.0.2.1:5000"), "{error}");
+    assert!(matches!(error, ClientError::Transport(TransportError::Connect { .. })));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_transport_can_ask_for_a_persistent_session() {
+    let sim = Simulator::from_model(model::lookup("HKS801-EB23").unwrap());
+    sim.handle().set_faults(Faults::NONE);
+    let handle = sim.handle();
+
+    // A connector that knows its connections are expensive, as a serial line does.
+    let mut session =
+        Session::with_policy(ExpensiveConnector { inner: sim.connector() }, Kvm, Policy::IMMEDIATE);
+    assert_eq!(session.connection_policy(), ConnectionPolicy::Persistent);
+
+    for human in 1..=3 {
+        session.exchange(Request::Switch(port(human))).await.unwrap();
+    }
+    assert_eq!(handle.connections(), 1, "the transport's preference was honoured");
+
+    // And the caller still has the last word: this command reuses the connection that is
+    // already open, then closes it...
+    session.set_connection_policy(ConnectionPolicy::PerCommand);
+    session.exchange(Request::Switch(port(4))).await.unwrap();
+    assert_eq!(handle.connections(), 1);
+    assert!(!session.is_connected());
+
+    // ... so the next one has to open its own.
+    session.exchange(Request::Switch(port(5))).await.unwrap();
+    assert_eq!(handle.connections(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_operations_builder_honours_and_overrides_the_preference() {
+    use tesmart_client::Kvm as KvmOps;
+
+    let info = model::lookup("HKS801-EB23").unwrap();
+    let sim = Simulator::from_model(info);
+    sim.handle().set_faults(Faults::NONE);
+
+    let kvm = KvmOps::builder(ExpensiveConnector { inner: sim.connector() })
+        .model(info)
+        .protocol_policy(Policy::IMMEDIATE)
+        .build()
+        .unwrap();
+    assert_eq!(
+        kvm.session().connection_policy(),
+        ConnectionPolicy::Persistent,
+        "the builder should take the transport's preference"
+    );
+
+    let kvm = KvmOps::builder(ExpensiveConnector { inner: sim.connector() })
+        .model(info)
+        .protocol_policy(Policy::IMMEDIATE)
+        .connection_policy(ConnectionPolicy::PerCommand)
+        .build()
+        .unwrap();
+    assert_eq!(
+        kvm.session().connection_policy(),
+        ConnectionPolicy::PerCommand,
+        "an explicit choice wins"
+    );
+}
+
+/// A connector whose connections are costly, like a serial port's.
+#[derive(Debug)]
+struct ExpensiveConnector {
+    inner: tesmart_sim::InProcess,
+}
+
+impl std::fmt::Display for ExpensiveConnector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("expensive://switch")
+    }
+}
+
+impl Connector for ExpensiveConnector {
+    type Io = DuplexStream;
+
+    fn connect(&self) -> impl Future<Output = Result<Self::Io, TransportError>> + Send {
+        self.inner.connect()
+    }
+
+    fn kind(&self) -> TransportKind {
+        TransportKind::Serial
+    }
+
+    fn preferred_policy(&self) -> ConnectionPolicy {
+        ConnectionPolicy::Persistent
+    }
+}
+
+/// A switch that accepts a connection and immediately hangs up.
+#[derive(Debug, Default)]
+struct ClosingConnector {
+    connects: Arc<AtomicU64>,
+}
+
+impl std::fmt::Display for ClosingConnector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("tcp://closing")
+    }
+}
+
+impl Connector for ClosingConnector {
+    type Io = DuplexStream;
+
+    fn connect(&self) -> impl Future<Output = Result<Self::Io, TransportError>> + Send {
+        self.connects.fetch_add(1, Ordering::Relaxed);
+        let (client, switch) = tokio::io::duplex(64);
+        drop(switch);
+        std::future::ready(Ok(client))
+    }
+
+    fn kind(&self) -> TransportKind {
+        TransportKind::Tcp
+    }
+}
+
+/// A switch that is not there.
+#[derive(Debug)]
+struct RefusingConnector;
+
+impl std::fmt::Display for RefusingConnector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("tcp://192.0.2.1:5000")
+    }
+}
+
+impl Connector for RefusingConnector {
+    type Io = DuplexStream;
+
+    fn connect(&self) -> impl Future<Output = Result<Self::Io, TransportError>> + Send {
+        std::future::ready(Err(TransportError::connect(
+            self,
+            io::Error::from(io::ErrorKind::ConnectionRefused),
+        )))
+    }
+
+    fn kind(&self) -> TransportKind {
+        TransportKind::Tcp
+    }
+}

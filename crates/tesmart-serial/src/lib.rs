@@ -194,3 +194,208 @@ impl Connector for SerialConnector {
         ConnectionPolicy::Persistent
     }
 }
+
+/// Accepts `serial://<path>[@baud]` and a bare `<path>[@baud]`.
+///
+/// | Input | Result |
+/// | --- | --- |
+/// | `/dev/ttyUSB0`, `serial:///dev/ttyUSB0` | that port at 9600 baud |
+/// | `/dev/ttyUSB0@19200`, `serial:///dev/ttyUSB0@19200` | that port at 19200 baud |
+/// | `COM3` | that port at 9600 baud |
+/// | `tcp://192.168.1.10` | [`ParseTargetError::WrongScheme`], so a caller can try another transport |
+impl FromStr for SerialConnector {
+    type Err = ParseTargetError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let target = s.trim();
+        if target.is_empty() {
+            return Err(ParseTargetError::Empty);
+        }
+
+        // `serial:///dev/ttyUSB0` leaves a leading slash, which is part of the path.
+        let rest = match target.split_once("://") {
+            Some((scheme, rest)) if scheme.eq_ignore_ascii_case(SCHEME) => rest,
+            Some((scheme, _)) => {
+                return Err(ParseTargetError::WrongScheme { scheme: scheme.to_owned() });
+            }
+            None => target,
+        };
+
+        let (path, baud) = match rest.rsplit_once('@') {
+            Some((path, baud)) => (path, Some(baud)),
+            None => (rest, None),
+        };
+        if path.is_empty() {
+            return Err(ParseTargetError::Empty);
+        }
+
+        let connector = Self::new(path);
+        match baud {
+            Some(baud) => {
+                let baud: u32 = baud
+                    .trim()
+                    .parse()
+                    .map_err(|_| ParseTargetError::Baud { baud: baud.to_owned() })?;
+                Ok(connector.with_baud(baud))
+            }
+            None => Ok(connector),
+        }
+    }
+}
+
+/// A target string that is not a serial target.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ParseTargetError {
+    /// Nothing to parse.
+    #[error("empty serial target")]
+    Empty,
+
+    /// Another transport's scheme.
+    ///
+    /// Distinct from the other variants so that a tool accepting several transports can try the
+    /// next parser instead of reporting this as a failure.
+    #[error("{scheme}:// is not a serial target")]
+    WrongScheme {
+        /// The scheme that was found.
+        scheme: String,
+    },
+
+    /// Not a baud rate.
+    #[error("{baud:?} is not a baud rate")]
+    Baud {
+        /// The text that was rejected.
+        baud: String,
+    },
+}
+
+/// A serial port the operating system knows about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortInfo {
+    /// The device file to open.
+    pub path: String,
+    /// What the port is attached to, as far as the system can tell.
+    pub kind: PortKind,
+}
+
+impl PortInfo {
+    /// A connector for this port, with the protocol's defaults.
+    pub fn connector(&self) -> SerialConnector {
+        SerialConnector::new(self.path.clone())
+    }
+}
+
+impl fmt::Display for PortInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}  {}", self.path, self.kind)
+    }
+}
+
+/// What a serial port is attached to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PortKind {
+    /// A USB serial adapter, which is what a TESmart switch is usually reached through.
+    Usb(UsbInfo),
+    /// A port on the PCI bus.
+    Pci,
+    /// A Bluetooth serial profile.
+    Bluetooth,
+    /// Anything else, including on-board UARTs.
+    Unknown,
+}
+
+impl fmt::Display for PortKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Usb(info) => write!(f, "USB {info}"),
+            Self::Pci => f.write_str("PCI"),
+            Self::Bluetooth => f.write_str("Bluetooth"),
+            Self::Unknown => f.write_str("unknown"),
+        }
+    }
+}
+
+/// What the system knows about a USB serial adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsbInfo {
+    /// USB vendor id.
+    pub vid: u16,
+    /// USB product id.
+    pub pid: u16,
+    /// Manufacturer string, when the device or the system provides one.
+    pub manufacturer: Option<String>,
+    /// Product string, when the device or the system provides one.
+    pub product: Option<String>,
+    /// Serial number, when the device provides one.
+    pub serial_number: Option<String>,
+}
+
+impl fmt::Display for UsbInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}:{:04x}", self.vid, self.pid)?;
+        for text in [self.manufacturer.as_deref(), self.product.as_deref()].into_iter().flatten() {
+            write!(f, " {text}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Lists the serial ports the system knows about.
+///
+/// Useful for finding which `/dev/ttyUSB*` the adapter landed on. Enumeration is best effort:
+/// a port that appears here may be in use or may not be a switch, and a port missing from here
+/// can still be opened by path.
+///
+/// # Errors
+///
+/// [`EnumerateError`] if the platform cannot enumerate ports.
+///
+/// # Panics
+///
+/// On Linux without `libudev`, the underlying crate reads `/sys/class/tty` and panics if that
+/// directory does not exist, which happens only in an environment with no `/sys` mounted.
+pub fn available_ports() -> Result<Vec<PortInfo>, EnumerateError> {
+    let ports = tokio_serial::available_ports()
+        .map_err(|error| EnumerateError { message: error.to_string() })?;
+
+    Ok(ports
+        .into_iter()
+        .map(|port| PortInfo {
+            path: port.port_name,
+            kind: match port.port_type {
+                tokio_serial::SerialPortType::UsbPort(usb) => PortKind::Usb(UsbInfo {
+                    vid: usb.vid,
+                    pid: usb.pid,
+                    manufacturer: usb.manufacturer,
+                    product: usb.product,
+                    serial_number: usb.serial_number,
+                }),
+                tokio_serial::SerialPortType::PciPort => PortKind::Pci,
+                tokio_serial::SerialPortType::BluetoothPort => PortKind::Bluetooth,
+                tokio_serial::SerialPortType::Unknown => PortKind::Unknown,
+            },
+        })
+        .collect())
+}
+
+/// The system's serial ports could not be listed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("cannot list serial ports: {message}")]
+pub struct EnumerateError {
+    message: String,
+}
+
+/// Turns a `tokio_serial::Error` into an `io::Error`, keeping the kind where there is one.
+///
+/// "No such device" and "already in use" are both worth telling apart: the second one usually
+/// means another copy of the tool is running.
+fn into_io_error(error: tokio_serial::Error) -> io::Error {
+    let kind = match error.kind() {
+        tokio_serial::ErrorKind::NoDevice => io::ErrorKind::NotFound,
+        tokio_serial::ErrorKind::InvalidInput => io::ErrorKind::InvalidInput,
+        tokio_serial::ErrorKind::Io(kind) => kind,
+        tokio_serial::ErrorKind::Unknown => io::ErrorKind::Other,
+    };
+    io::Error::new(kind, error.description)
+}

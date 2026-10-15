@@ -1,0 +1,24 @@
+[package]
+name = "tesmart-serial"
+description = "RS232 transport for TESmart KVM switches (9600 8N1 on a 3-pin Phoenix connector)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["tesmart", "kvm", "serial", "rs232", "transport"]
+categories = ["network-programming", "hardware-support"]
+
+[dependencies]
+tesmart-client = { workspace = true }
+# No `libudev` feature: enumeration falls back to scanning /sys/class/tty, so there is no
+# system library to install and the Nix shell needs nothing added.
+tokio-serial = { workspace = true }
+# `rt` is for `spawn_blocking`: opening a tty is a synchronous call and must not be able to
+# stall the executor.
+tokio = { workspace = true, features = ["net", "io-util", "time", "rt"] }
+tracing = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

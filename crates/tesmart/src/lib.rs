@@ -96,3 +96,72 @@ pub use tesmart_client::{
 };
 pub use tesmart_proto::value::{Buzzer, DisplayTimeout, MatrixTimeout, NetSetting, Preset, Toggle};
 pub use tesmart_proto::{Family, Port, PortCount, Request, Response, Support, model};
+
+/// Everything needed to drive a switch, for `use tesmart::prelude::*`.
+pub mod prelude {
+    pub use crate::client::{Connector as _, Kvm, Matrix, OpError};
+    pub use crate::proto::{Family, Port, Support};
+    pub use crate::{RouteOutcome, SwitchOutcome};
+
+    #[cfg(feature = "_transport")]
+    pub use crate::AnyConnector;
+}
+
+/// A handle could not be built from a target string and a model name.
+#[cfg(feature = "_transport")]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ConnectError {
+    /// The target string named no transport this build can reach.
+    #[error(transparent)]
+    Target(#[from] TargetError),
+
+    /// The model is not in the built-in registry.
+    ///
+    /// Use [`client::Kvm::builder`] with an explicit family and port count for a switch the
+    /// registry does not know.
+    #[error("unknown model {0:?}; see tesmart::model::MODELS for the ones that are known")]
+    UnknownModel(String),
+
+    /// The model is in the registry, but speaks the wrong protocol family for this handle.
+    #[error(transparent)]
+    Build(#[from] client::BuildError),
+}
+
+/// Builds a KVM handle from a target string and a registry model name.
+///
+/// The one-liner for the common case. Nothing is opened: the first operation connects.
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let kvm = tesmart::kvm("tcp://192.168.1.10:5000", "HKS801-EB23")?;
+/// assert_eq!(kvm.ports().get(), 8);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Errors
+///
+/// [`ConnectError`] if the target names no usable transport, the model is not in the registry,
+/// or the model is a matrix — in which case use [`matrix`] instead.
+#[cfg(feature = "_transport")]
+pub fn kvm(target: &str, model: &str) -> Result<Kvm<AnyConnector>, ConnectError> {
+    let info = lookup(model)?;
+    Ok(Kvm::from_model(resolve(target)?, info)?)
+}
+
+/// Builds an HDMI matrix handle from a target string and a registry model name.
+///
+/// # Errors
+///
+/// As [`kvm`], except that the model must be a matrix.
+#[cfg(feature = "_transport")]
+pub fn matrix(target: &str, model: &str) -> Result<Matrix<AnyConnector>, ConnectError> {
+    let info = lookup(model)?;
+    Ok(Matrix::from_model(resolve(target)?, info)?)
+}
+
+#[cfg(feature = "_transport")]
+fn lookup(model: &str) -> Result<&'static proto::ModelInfo, ConnectError> {
+    model::lookup(model).ok_or_else(|| ConnectError::UnknownModel(model.to_owned()))
+}

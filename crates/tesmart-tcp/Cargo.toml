@@ -17,5 +17,12 @@ tokio = { workspace = true, features = ["net", "time", "rt"] }
 tracing = { workspace = true }
 thiserror = { workspace = true, features = ["std"] }
 
+[dev-dependencies]
+tesmart-proto = { workspace = true }
+# Path only, no version: tesmart-sim depends on tesmart-client, so a versioned dev-dependency
+# here would have to be published before the crate it depends on. Cargo drops it on publish.
+tesmart-sim = { path = "../tesmart-sim" }
+tokio = { workspace = true, features = ["net", "time", "rt", "macros", "test-util"] }
+
 [lints]
 workspace = true

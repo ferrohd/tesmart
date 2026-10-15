@@ -486,6 +486,8 @@ name = "tesmart-tcp"
 version = "0.1.0"
 dependencies = [
  "tesmart-client",
+ "tesmart-proto",
+ "tesmart-sim",
  "thiserror",
  "tokio",
  "tracing",

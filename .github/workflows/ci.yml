@@ -65,6 +65,40 @@ jobs:
       - run: cargo clippy -p tesmart --all-targets ${{ matrix.features }}
       - run: cargo test -p tesmart ${{ matrix.features }}
 
+  # Catches the publishing traps before a release rather than during one: metadata crates.io
+  # rejects, a readme outside its own package, or a missing file.
+  #
+  # Only `tesmart-proto` can be packaged for real before the first release: `cargo package`
+  # resolves regular dependencies against the registry even with `--no-verify`, so every crate
+  # above the graph root fails with "no matching package" until the one below it is published.
+  # `--list` does the manifest rewrite without resolving, which is the part worth checking.
+  package:
+    name: cargo package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: the graph root packages for real
+        run: cargo package -p tesmart-proto --allow-dirty
+      - name: every crate produces a valid package listing
+        run: |
+          for crate in tesmart-device tesmart-client tesmart-tcp tesmart-serial tesmart-sim tesmart tesmart-cli; do
+            echo "::group::$crate"
+            cargo package -p "$crate" --list --allow-dirty
+            echo "::endgroup::"
+          done
+      - name: the cyclic dev-dependency carries no version
+        # tesmart-sim depends on tesmart-client, so a versioned dev-dependency would have to be
+        # published before the crate it depends on. Cargo drops a version-less one instead.
+        run: |
+          for crate in tesmart-client tesmart-tcp tesmart-serial; do
+            if grep -E '^tesmart-sim *= *\{[^}]*version' "crates/$crate/Cargo.toml"; then
+              echo "::error::crates/$crate declares tesmart-sim with a version; publishing will deadlock"
+              exit 1
+            fi
+          done
+
   # Both halves of the protocol claim to be sans-IO and allocation free. A bare-metal target
   # with no `std` at all is the only honest way to check that claim.
   #

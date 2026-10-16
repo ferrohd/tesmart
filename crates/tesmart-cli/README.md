@@ -73,17 +73,6 @@ tesmart models show HKS801-P23   # per-command support, and the evidence for it
 For a switch that is not in the registry, give `-f kvm --ports 8` instead. `tesmart probe` will
 try the capabilities the registry is unsure about and report what actually worked.
 
-## Features
-
-| Feature | Default | Effect |
-| --- | --- | --- |
-| `serial` | yes | RS232 support; dropping it removes `tokio-serial` and `serialport` |
-| `sim` | yes | `-t sim://` and `tesmart sim serve` |
-
-```sh
-cargo install tesmart-cli --no-default-features   # TCP only
-```
-
 ## Licence
 
 AGPL-3.0-or-later.

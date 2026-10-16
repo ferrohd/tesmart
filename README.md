@@ -14,10 +14,12 @@ tesmart = "0.1"
 ```
 
 ```rust
-use tesmart::Port;
+use tesmart::{Kvm, Port, model, tcp::TcpConnector};
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let mut kvm = tesmart::kvm("192.168.1.10", "HKS1601-EB23")?;
+let info = model::lookup("HKS1601-EB23").expect("a model in the registry");
+let mut kvm = Kvm::from_model("192.168.1.10".parse::<TcpConnector>()?, info)?;
+
 let outcome = kvm.switch(Port::new(4)?).await?;
 println!("{outcome}");
 # Ok(())
@@ -28,14 +30,14 @@ println!("{outcome}");
 
 | Crate | Role |
 | --- | --- |
-| [`tesmart`](crates/tesmart) | the front door: re-exports, feature-gated transports, target strings |
+| [`tesmart`](crates/tesmart) | the front door: re-exports and feature-gated transports, behind one version |
 | [`tesmart-proto`](crates/tesmart-proto) | the protocol, controller side: sans-IO, `no_std`, no allocator |
 | [`tesmart-device`](crates/tesmart-device) | the protocol, switch side: answers like hardware, `no_std` |
 | [`tesmart-client`](crates/tesmart-client) | the async driver and the operations |
 | [`tesmart-tcp`](crates/tesmart-tcp) | one `Connector` over TCP |
 | [`tesmart-serial`](crates/tesmart-serial) | one `Connector` over RS232 |
 | [`tesmart-sim`](crates/tesmart-sim) | an emulated switch, for tests |
-| [`tesmart-cli`](crates/tesmart-cli) | the `tesmart` binary |
+| [`tesmart-cli`](crates/tesmart-cli) | the `tesmart` binary, and target strings like `sim://HKS1601-EB23` |
 
 ## Three ideas
 

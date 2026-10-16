@@ -8,10 +8,11 @@ tesmart = "0.1"
 ```
 
 ```rust
-use tesmart::Port;
+use tesmart::{Kvm, Port, model, tcp::TcpConnector};
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let mut kvm = tesmart::kvm("192.168.1.10", "HKS1601-EB23")?;
+let info = model::lookup("HKS1601-EB23").expect("a model in the registry");
+let mut kvm = Kvm::from_model("192.168.1.10".parse::<TcpConnector>()?, info)?;
 
 match kvm.switch(Port::new(4)?).await? {
     outcome if outcome.is_confirmed() => println!("on port {}", outcome.port()),
@@ -54,17 +55,25 @@ computer you are looking at on another.
 | `sim` | no | an emulated switch, for tests and for trying things without hardware |
 | `serde` | no | `Serialize`/`Deserialize` on the protocol value types |
 
-A target string naming a transport you did not enable is an error, not a fallback.
+Each transport parses its own address, so picking one is a type rather than a string scheme:
 
 ```rust
 // tesmart = { version = "0.1", features = ["serial", "sim"] }
 # fn example() -> Result<(), Box<dyn std::error::Error>> {
-let lan    = tesmart::resolve("192.168.1.10")?;      // tcp
-let serial = tesmart::resolve("/dev/ttyUSB0@9600")?; // serial
-let fake   = tesmart::resolve("sim://HKS1601-EB23")?;// emulated
+let lan: tesmart::tcp::TcpConnector = "192.168.1.10".parse()?;
+let serial: tesmart::serial::SerialConnector = "/dev/ttyUSB0@9600".parse()?;
+let fake = tesmart::sim::Simulator::from_model(
+    tesmart::model::lookup("HKS1601-EB23").expect("a known model"),
+)
+.connector();
 # Ok(())
 # }
 ```
+
+Guessing which of those a string like `/dev/ttyUSB0` was meant for needs a user to have typed
+it, so it lives in the command line tool rather than here. If you want the same rules, the
+`tesmart` binary accepts `tcp://…`, `serial://…`, `sim://MODEL`, bare device paths and bare host
+names.
 
 ## Testing without hardware
 

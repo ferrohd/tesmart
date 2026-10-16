@@ -16,7 +16,7 @@ How the workspace is layered, and why. For the wire-level details (bytes, opcode
 
 ```mermaid
 graph TD
-    CLI[tesmart-cli<br/>args, output, exit codes] --> FACADE[tesmart<br/>re-exports + target strings]
+    CLI[tesmart-cli<br/>args, target strings, output, exit codes] --> FACADE[tesmart<br/>re-exports]
     FACADE --> CLIENT[tesmart-client<br/>async driver + operations]
     FACADE --> TCP[tesmart-tcp]
     FACADE --> SER[tesmart-serial]
@@ -37,8 +37,8 @@ graph TD
 | `tesmart-tcp` | one `Connector` over TCP | yes | no |
 | `tesmart-serial` | one `Connector` over RS232 | yes | no |
 | `tesmart-sim` | serves a `tesmart-device` behind a `Connector` | yes | no |
-| `tesmart` | the library front door: re-exports and target strings | yes | no |
-| `tesmart-cli` | the `tesmart` binary | yes | no |
+| `tesmart` | the library front door: re-exports, nothing of its own | yes | no |
+| `tesmart-cli` | the `tesmart` binary, and the target strings that feed it | yes | no |
 
 The transport crates contain no protocol or operation code at all: a transport is one trait with one method. Adding RS232 did not change a line of either.
 

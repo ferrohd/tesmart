@@ -100,3 +100,62 @@ The family always has the last word: a capability claimed for a command the fami
 Owns everything timing-related: minimum command spacing, reply deadlines, retransmission of queries (and only queries — repeating a read is harmless, repeating a write is not), and the duplicate window that recognises the late reply to a retried read.
 
 Its interface is poll-based: `submit`, `poll_transmit`, `handle_input`, `poll_event`, `poll_timeout`. It never sleeps; the caller owns the clock.
+
+## tesmart-device
+
+The counterpart to the engine, and the other end of the same wire: bytes in, bytes out, no IO, no clock. One dependency, `tesmart-proto`, so the `±1` port asymmetry and every opcode are defined once and read from both sides.
+
+`Device` dispatches by configured family into private `kvm` and `matrix` modules, and honours model capabilities — configured as a `DKS0401A30` it ignores a read-port request exactly as the real model does, which is what makes capability gating testable rather than theoretical.
+
+`Faults` is what makes it a usable test double: split replies, non-`0xEE` terminators, missing replies, impossible port indexes, unsolicited reports, and a network write that is acknowledged but stored wrong. The faults are **counter-driven rather than random**, so a failing test fails the same way twice. Firmware would configure `Faults::NONE`.
+
+## tesmart-client
+
+### `Connector` — the transport boundary
+
+One trait, one method. Implementors are cheap descriptions of *where* the switch is, not open handles, because the default policy opens a connection per command the way PiKVM does.
+
+### `Session` — the driver loop
+
+The only place in the workspace that awaits anything. Turns the engine's poll interface into `async fn`s. Per iteration: drain engine events, write if the gap has passed, wait for a read or the next deadline. The engine lives in the session rather than in the connection, which is what lets connection-per-command still honour the switch's one-second spacing.
+
+It also derives the ASCII *scope* from the transport, so a matrix reached over RS232 gets the `MT80xx` wrapped network commands without the caller restating which cable is plugged in.
+
+### `Kvm` and `Matrix` — the operations
+
+Two types because they are two protocols. Both wrap a private `Ops`, which holds the session, the model spec, and the one thing both families share: the ASCII network channel.
+
+| | KVM | Matrix |
+| --- | --- | --- |
+| Primary verb | `switch(port)` | `route(input, output)` |
+| Can confirm it? | only via the undocumented `0x10` read | **yes**, `MT00RD0000NT` reports the whole table |
+| Settings | write-only on every series | write-only |
+| Extras | `watch`, `probe_port_count` | presets, mirror, route-all |
+
+Matrix routing is the only write in any TESmart family whose effect can be confirmed. That asymmetry is visible in the return types: `RouteOutcome::Verified` carries the matrix's own report, while every KVM setting can do no better than `Sent`.
+
+`probe_port_count` is the one deliberately invasive operation: no command reports the input count, so it switches through the inputs to find out, then restores the original. It is opt-in for that reason.
+
+## tesmart-cli
+
+Thin: argument parsing, output formatting, exit codes. The report types are defined in the CLI rather than reused from the library, because `--output json` is a contract with whoever is scripting the tool — a rename inside `tesmart-client` then breaks the mapping at compile time instead of breaking somebody's `jq` in silence.
+
+One generic function covers every transport. The three-way match naming them is the only place a transport is mentioned, and it costs three monomorphisations rather than a boxed trait object.
+
+Exit codes are a stable classification (`usage`, `transport`, `timeout`, `unsupported`, `verification`, `protocol`) derived from one `match` that will not drift as error variants are added.
+
+## Testing strategy
+
+| Layer | Approach |
+| --- | --- |
+| Codecs, values | pure unit tests on bytes; every sequence printed in the protocol reference is a golden vector |
+| Decoder | hostile input: split frames, garbage, bad terminators, truncated replies |
+| Engine | a fake clock; retries and command spacing asserted in ticks, not in sleeps |
+| Device | `tesmart-device` driven directly: bytes in, state and bytes out |
+| Operations | `tesmart-sim` serving a `tesmart-device` with scripted faults, one test per honest answer |
+| Transports | a real TCP listener; a PTY pair for serial |
+| CLI | the built binary against `tesmart-sim` in process, asserting output and exit codes |
+
+The capability matrix is the point of the operations tests: the same `switch` call has to produce a confirmed result on an EB23, an unconfirmable one on a 4x1 DVI, and a loud failure on a switch that silently ignores commands.
+
+Regression tests encode the protocol's known traps, not just the happy path: that a truncated port report is *not* read as PC1 (the bug in `tesmart.sh`), that the matrix buzzer is inverted against the KVM one, and that a 16x16's `A`–`G` port digits survive a round trip.

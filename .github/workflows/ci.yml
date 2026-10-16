@@ -5,6 +5,9 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  # Called by release-plz.yml. A release pull request is merged with the default GITHUB_TOKEN,
+  # which cannot trigger workflow runs, so the release job has to run this suite itself.
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
@@ -80,8 +83,10 @@ jobs:
   # asks for `tcp`, `serial` and `sim` explicitly and feature unification applies that to the
   # whole graph. The matrix above is the only place the trimmed facade is compiled at all.
 
-  # Catches the publishing traps before a release rather than during one: metadata crates.io
-  # rejects, a readme outside its own package, or a missing file.
+  # release-plz does the publishing, in dependency order, when a release PR merges. This job is
+  # the pre-flight: it catches the traps on the pull request that introduces them rather than
+  # halfway through a release, when some crates are already on the registry and cannot be taken
+  # back. Metadata crates.io rejects, a missing file, a dev-dependency that deadlocks.
   #
   # Only `tesmart-proto` can be packaged for real before the first release: `cargo package`
   # resolves regular dependencies against the registry even with `--no-verify`, so every crate

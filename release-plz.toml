@@ -1,0 +1,33 @@
+[workspace]
+# Publish only when the release PR is merged, not on every commit to master.
+release_always = false
+
+# Pin the tag template. The default switches to "v{{ version }}" whenever the workspace has a
+# single publishable package, so pinning keeps tag names stable regardless of how many crates
+# are published.
+git_tag_name = "{{ package }}-v{{ version }}"
+
+# `cargo publish` verifies by building with default features only. That would leave `serial` and
+# `sim` unverified at the moment they ship, and they are the features most likely to break: one
+# pulls in a system serial port, the other is the whole switch-side emulator.
+publish_all_features = true
+
+pr_labels = ["release"]
+
+[changelog]
+# Never drop a breaking change, even when its type matches a skip rule below.
+protect_breaking_commits = true
+
+# Ordered: first match wins. Mirrors the conventional-commit prefixes actually used in this
+# repository, which so far are feat, test, docs, build, chore and ci.
+commit_parsers = [
+    { message = '^feat', group = "Added" },
+    { message = '^fix', group = "Fixed" },
+    { message = '^perf', group = "Performance" },
+    { message = '^refactor', group = "Changed" },
+    { message = '^docs', group = "Documentation" },
+    # Dependency bumps are worth listing even though their prefixes are skipped below.
+    { message = '^(chore|build)\(deps\)', group = "Dependencies" },
+    { message = '^(ci|style|test|chore|build)', skip = true },
+    { message = '^.*', group = "Other" },
+]

@@ -66,6 +66,76 @@ impl TargetOptions {
 
 /// A target string that names no transport this build can reach.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum TargetError {
+    /// The target was empty or only whitespace.
+    #[error("empty target")]
+    Empty,
+
+    /// The target named a scheme that means nothing here.
+    #[error("unknown target scheme {scheme:?}; expected tcp://, serial:// or sim")]
+    UnknownScheme {
+        /// The scheme that was found.
+        scheme: String,
+    },
+
+    /// The target named TCP, and the rest of it does not parse.
+    #[cfg(feature = "tcp")]
+    #[error("{target:?}: {source}")]
+    Tcp {
+        /// The target as given.
+        target: String,
+        /// Why it does not parse.
+        #[source]
+        source: tesmart_tcp::ParseTargetError,
+    },
+
+    /// The target named a serial port, and the rest of it does not parse.
+    #[cfg(feature = "serial")]
+    #[error("{target:?}: {source}")]
+    Serial {
+        /// The target as given.
+        target: String,
+        /// Why it does not parse.
+        #[source]
+        source: tesmart_serial::ParseTargetError,
+    },
+
+    /// The emulator was asked to be a model that is not in the registry.
+    #[cfg(feature = "sim")]
+    #[error("unknown model {name:?} for the emulator")]
+    UnknownModel {
+        /// The name that was asked for.
+        name: String,
+    },
+
+    /// The target names a transport this build was compiled without.
+    #[error("{target:?} needs the `{feature}` feature, which this build of tesmart does not have")]
+    MissingFeature {
+        /// The target as given.
+        target: String,
+        /// The Cargo feature that would enable it.
+        feature: &'static str,
+    },
+}
+
+/// Resolves a target string with the default [`TargetOptions`].
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use tesmart::{Connector, TransportKind};
+///
+/// let switch = tesmart::resolve("192.168.1.10")?;
+/// assert_eq!(switch.kind(), TransportKind::Tcp);
+/// assert_eq!(switch.to_string(), "tcp://192.168.1.10:5000");
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Errors
+///
+/// [`TargetError`] if the string names no transport this build supports, or names one and then
+/// fails to parse.
 pub fn resolve(target: &str) -> Result<AnyConnector, TargetError> {
     resolve_with(target, TargetOptions::default())
 }

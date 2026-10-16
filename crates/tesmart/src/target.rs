@@ -388,3 +388,128 @@ impl AsyncWrite for AnyIo {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn resolved(target: &str) -> AnyConnector {
+        resolve(target).unwrap_or_else(|error| panic!("{target:?}: {error}"))
+    }
+
+    #[cfg(feature = "tcp")]
+    #[test]
+    fn addresses_and_names_are_tcp() {
+        for target in [
+            "tcp://192.168.1.10:5000",
+            "192.168.1.10",
+            "192.168.1.10:5000",
+            "kvm.local",
+            "[fd00::1]:5000",
+        ] {
+            assert!(matches!(resolved(target), AnyConnector::Tcp(_)), "{target}");
+        }
+        assert_eq!(resolved("192.168.1.10").to_string(), "tcp://192.168.1.10:5000");
+    }
+
+    #[cfg(feature = "serial")]
+    #[test]
+    fn device_paths_are_serial() {
+        for target in ["/dev/ttyUSB0", "serial:///dev/ttyUSB0", "./tty", "COM3", "com12"] {
+            assert!(matches!(resolved(target), AnyConnector::Serial(_)), "{target}");
+        }
+        assert_eq!(resolved("/dev/ttyUSB0").to_string(), "serial:///dev/ttyUSB0@9600");
+    }
+
+    #[cfg(feature = "serial")]
+    #[test]
+    fn the_baud_option_applies_unless_the_target_names_one() {
+        let options = TargetOptions::default().with_baud(19200);
+        let AnyConnector::Serial(connector) = resolve_with("/dev/ttyUSB0", options).unwrap() else {
+            panic!("expected a serial target")
+        };
+        assert_eq!(connector.baud(), 19200);
+
+        let AnyConnector::Serial(connector) = resolve_with("/dev/ttyUSB0@115200", options).unwrap()
+        else {
+            panic!("expected a serial target")
+        };
+        assert_eq!(connector.baud(), 115_200, "the target is more specific than the option");
+    }
+
+    #[cfg(feature = "sim")]
+    #[test]
+    fn sim_resolves_with_and_without_a_model() {
+        assert_eq!(resolved("sim").to_string(), "sim://HKS1601-EB23");
+        assert_eq!(resolved("sim://DKS0401A30").to_string(), "sim://DKS0401A30");
+        assert!(resolve("sim://nonsense").is_err());
+    }
+
+    #[test]
+    fn an_unknown_scheme_says_what_is_expected() {
+        let error = resolve("udp://192.168.1.10").unwrap_err();
+        assert!(error.to_string().contains("expected tcp://, serial:// or sim"), "{error}");
+    }
+
+    #[test]
+    fn an_empty_target_is_refused() {
+        assert!(matches!(resolve("   "), Err(TargetError::Empty)));
+    }
+
+    #[cfg(feature = "tcp")]
+    #[test]
+    fn a_malformed_tcp_target_does_not_fall_back_to_serial() {
+        let error = resolve("tcp://192.168.1.10:0").unwrap_err();
+        assert!(error.to_string().contains("not a TCP port"), "{error}");
+    }
+
+    #[test]
+    fn com_ports_are_told_apart_from_host_names() {
+        assert!(is_windows_com_port("COM3"));
+        assert!(is_windows_com_port("com12@9600"));
+        assert!(!is_windows_com_port("computer.local"));
+        assert!(!is_windows_com_port("COM"));
+    }
+
+    /// The whole point of the enum: these two must survive the indirection. `kind()` decides
+    /// which spelling of the matrix network commands goes out, and `preferred_policy()` decides
+    /// whether the connection is held open.
+    #[test]
+    fn the_transport_is_not_lost_behind_the_enum() {
+        #[cfg(feature = "tcp")]
+        {
+            let tcp = resolved("192.168.1.10");
+            assert_eq!(tcp.kind(), TransportKind::Tcp);
+            assert_eq!(tcp.preferred_policy(), ConnectionPolicy::PerCommand);
+        }
+        #[cfg(feature = "serial")]
+        {
+            let serial = resolved("/dev/ttyUSB0");
+            assert_eq!(serial.kind(), TransportKind::Serial);
+            assert_eq!(
+                serial.preferred_policy(),
+                ConnectionPolicy::Persistent,
+                "a serial line must stay open, or every command pays a port-settings round trip"
+            );
+        }
+        #[cfg(feature = "sim")]
+        {
+            let sim = resolved("sim");
+            assert_eq!(sim.kind(), TransportKind::Simulated);
+        }
+    }
+
+    /// And the bytes have to actually flow through `AnyIo`.
+    #[cfg(feature = "sim")]
+    #[tokio::test]
+    async fn bytes_reach_the_switch_through_the_enum() {
+        use tesmart_proto::Port;
+
+        let mut kvm = crate::kvm("sim://HKS1601-EB23", "HKS1601-EB23").unwrap();
+        kvm.session_mut().set_protocol_policy(tesmart_proto::engine::Policy::IMMEDIATE);
+
+        let outcome = kvm.switch(Port::new(7).unwrap()).await.unwrap();
+        assert!(outcome.is_confirmed(), "{outcome}");
+        assert_eq!(kvm.active_port().await.unwrap().get(), 7);
+    }
+}

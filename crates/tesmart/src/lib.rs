@@ -165,3 +165,52 @@ pub fn matrix(target: &str, model: &str) -> Result<Matrix<AnyConnector>, Connect
 fn lookup(model: &str) -> Result<&'static proto::ModelInfo, ConnectError> {
     model::lookup(model).ok_or_else(|| ConnectError::UnknownModel(model.to_owned()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "tcp")]
+    #[test]
+    fn a_model_name_and_a_target_are_enough() {
+        let kvm = kvm("192.168.1.10", "HKS1601-EB23").expect("a known model");
+        assert_eq!(kvm.ports().get(), 16);
+        assert_eq!(kvm.family(), Family::Kvm);
+        assert_eq!(kvm.session().connector().to_string(), "tcp://192.168.1.10:5000");
+
+        let matrix = matrix("192.168.1.10", "HMA0808A10").expect("a known matrix");
+        assert_eq!(matrix.inputs().get(), 8);
+        assert_eq!(matrix.outputs().get(), 8);
+    }
+
+    #[cfg(feature = "tcp")]
+    #[test]
+    fn the_families_are_not_interchangeable() {
+        // A KVM asked for as a matrix, and the reverse: refused with the reason.
+        let error = matrix("192.168.1.10", "HKS1601-EB23").unwrap_err();
+        assert!(matches!(error, ConnectError::Build(_)), "{error}");
+        assert!(error.to_string().contains("expected an HDMI matrix"), "{error}");
+
+        let error = kvm("192.168.1.10", "HMA0808A10").unwrap_err();
+        assert!(error.to_string().contains("expected a KVM switch"), "{error}");
+    }
+
+    #[cfg(feature = "tcp")]
+    #[test]
+    fn an_unknown_model_points_at_the_registry() {
+        let error = kvm("192.168.1.10", "HKS9999").unwrap_err();
+        assert!(matches!(error, ConnectError::UnknownModel(_)), "{error}");
+        assert!(error.to_string().contains("model::MODELS"), "{error}");
+    }
+
+    #[test]
+    fn the_re_exports_cover_the_common_path() {
+        // If any of these stop resolving, the facade is not actually usable on its own.
+        let port = Port::new(4).unwrap();
+        assert_eq!(port.get(), 4);
+        assert_eq!(Family::Kvm.name(), "kvm");
+        assert!(model::lookup("HKS1601-EB23").is_some());
+        assert_eq!(Buzzer::Muted.to_string(), "muted");
+        assert_eq!(Support::Documented.name(), "documented");
+    }
+}

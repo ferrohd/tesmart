@@ -3,6 +3,61 @@
 Rust tooling for TESmart KVM switches and HDMI matrices, over TCP or RS232: a library, a command
 line tool, and a transcription of the protocols they speak.
 
+```sh
+cargo install tesmart-cli                        # the `tesmart` binary
+tesmart -t sim://HKS1601-EB23 -m HKS1601-EB23 switch 4   # try it without hardware
+```
+
+```toml
+[dependencies]
+tesmart = "0.1"
+```
+
+```rust
+use tesmart::Port;
+
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+let mut kvm = tesmart::kvm("192.168.1.10", "HKS1601-EB23")?;
+let outcome = kvm.switch(Port::new(4)?).await?;
+println!("{outcome}");
+# Ok(())
+# }
+```
+
+## What is here
+
+| Crate | Role |
+| --- | --- |
+| [`tesmart`](crates/tesmart) | the front door: re-exports, feature-gated transports, target strings |
+| [`tesmart-proto`](crates/tesmart-proto) | the protocol, controller side: sans-IO, `no_std`, no allocator |
+| [`tesmart-device`](crates/tesmart-device) | the protocol, switch side: answers like hardware, `no_std` |
+| [`tesmart-client`](crates/tesmart-client) | the async driver and the operations |
+| [`tesmart-tcp`](crates/tesmart-tcp) | one `Connector` over TCP |
+| [`tesmart-serial`](crates/tesmart-serial) | one `Connector` over RS232 |
+| [`tesmart-sim`](crates/tesmart-sim) | an emulated switch, for tests |
+| [`tesmart-cli`](crates/tesmart-cli) | the `tesmart` binary |
+
+## Three ideas
+
+**Sans-IO at the core.** The protocol is a pure state machine: bytes in, events out, no sockets
+and no clock. One crate awaits anything. That is what makes command spacing, retries and
+resynchronisation after garbage testable without hardware, a network or a runtime — and what
+lets the protocol run on a microcontroller. Both halves do: `tesmart-device` is the switch side,
+so a bare-metal board can answer like a TESmart switch and existing software drives it unchanged.
+
+**Say what was actually established.** This protocol acknowledges almost nothing. Of the
+commands a KVM understands, only reading the active port and writing network settings produce a
+reply, and several models cannot even do the former. So operations return outcomes rather than
+`()`, and "the switch is on port 3" stays distinguishable from "port 3 was requested and nobody
+can say what happened". Matrices are the exception: they report their routing table, so a route
+is the one write in any family whose effect can be confirmed.
+
+**Capabilities belong to the model, not the family.** Only "switch input" is documented for
+every TESmart series; everything else depends on which PDF covers your unit, and several
+commands are known to work only because community tools use them. The registry records that
+difference instead of flattening it — `documented`, `field-tested`, `unverified` or
+`unsupported` — so the tool can say *why* it is about to try something, or refuse.
+
 ## Protocols
 
 Four incompatible families, and the same opcode byte means different things across them.

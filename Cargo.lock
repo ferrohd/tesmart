@@ -906,8 +906,6 @@ dependencies = [
  "tesmart-serial",
  "tesmart-sim",
  "tesmart-tcp",
- "thiserror",
- "tokio",
 ]
 
 [[package]]

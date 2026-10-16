@@ -10,24 +10,26 @@ readme = "README.md"
 keywords = ["tesmart", "kvm", "matrix", "rs232", "hdmi"]
 categories = ["network-programming", "asynchronous", "hardware-support"]
 
+[lib]
+# The crate-level example connects, which needs a transport feature, and this crate is also
+# built with none. Rather than gate the one example a reader wants to see, the compiled
+# examples live in the crates it re-exports: `tesmart-tcp` and `tesmart-client` doctest their
+# own, under every feature combination.
+doctest = false
+
 [features]
 # TCP is the transport almost everyone wants: every switch ships with its LAN port on
 # 192.168.1.10:5000.
 default = ["tcp"]
 # The switch's LAN port.
-tcp = ["dep:tesmart-tcp", "_transport"]
+tcp = ["dep:tesmart-tcp"]
 # The switch's RS232 port. Off by default because a TCP-only caller should not pay for it;
 # there is no system library to install either way.
-serial = ["dep:tesmart-serial", "_transport"]
+serial = ["dep:tesmart-serial"]
 # An emulated switch, for tests and for trying things without hardware.
-sim = ["dep:tesmart-sim", "_transport"]
+sim = ["dep:tesmart-sim"]
 # `serde` derives on the protocol value types.
 serde = ["tesmart-proto/serde"]
-
-# Internal, do not enable directly: set by every transport feature, so that target resolution
-# and `AnyConnector` compile only when there is at least one transport for them to choose
-# between. An enum with no variants cannot be matched on.
-_transport = []
 
 [dependencies]
 tesmart-proto = { workspace = true }
@@ -36,15 +38,7 @@ tesmart-tcp = { workspace = true, optional = true }
 tesmart-serial = { workspace = true, optional = true }
 tesmart-sim = { workspace = true, optional = true }
 
-# Only for the `AsyncRead`/`AsyncWrite` traits that `AnyIo` delegates. No features needed:
-# tokio exposes the IO traits unconditionally.
-tokio = { workspace = true }
-thiserror = { workspace = true, features = ["std"] }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros", "time", "io-util", "test-util"] }
-
-# Every transport, so the re-exports and `AnyConnector` are all exercised.
+# Every transport, so all of the re-exports are documented.
 [package.metadata.docs.rs]
 all-features = true
 

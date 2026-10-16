@@ -46,16 +46,24 @@ jobs:
             default)             cargo test --workspace ;;
           esac
 
-  # One transport at a time, because the facade's target resolution and `AnyConnector` change
-  # shape with each: a variant that only compiles when its neighbour is enabled would not be
-  # caught by `--all-features` alone.
+  # One transport at a time. Every row is spelled `--no-default-features --features X`, because
+  # `--features X` alone leaves the default `tcp` on, which would mean the single-transport
+  # builds were never actually built.
+  #
+  # The facade is re-exports only, so these rows check that each transport's `pub use` resolves
+  # on its own, and that the crate is still coherent with no transport at all.
   facade:
     name: tesmart (${{ matrix.features }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        features: ["--no-default-features", "", "--features serial", "--features sim", "--all-features"]
+        features:
+          - "--no-default-features"
+          - "--no-default-features --features tcp"
+          - "--no-default-features --features serial"
+          - "--no-default-features --features sim"
+          - "--all-features"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -64,6 +72,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy -p tesmart --all-targets ${{ matrix.features }}
       - run: cargo test -p tesmart ${{ matrix.features }}
+
+  # There is deliberately no matrix for `tesmart-cli`: it has no features, so every build of it
+  # is the same build, already covered by the workspace jobs above.
+  #
+  # Note that those workspace jobs never build the facade with no transport, because the tool
+  # asks for `tcp`, `serial` and `sim` explicitly and feature unification applies that to the
+  # whole graph. The matrix above is the only place the trimmed facade is compiled at all.
 
   # Catches the publishing traps before a release rather than during one: metadata crates.io
   # rejects, a readme outside its own package, or a missing file.

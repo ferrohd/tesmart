@@ -1,0 +1,66 @@
+[package]
+name = "tesmart-cli"
+description = "Command line tool for TESmart KVM switches and HDMI matrices, over TCP or RS232"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["tesmart", "kvm", "cli", "rs232"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "tesmart"
+path = "src/main.rs"
+# The binary is named `tesmart` and so is the library crate, which makes `cargo doc` write both
+# to target/doc/tesmart (rust-lang/cargo#6313). The library is the published artifact, so the
+# binary yields: its internal docs are a developer convenience, not an interface.
+doc = false
+
+[features]
+default = ["serial", "sim"]
+# Drops tokio-serial and serialport entirely, for a TCP-only binary.
+serial = ["tesmart/serial"]
+# The in-process emulator behind `-t sim`, and the `sim serve` subcommand.
+sim = ["tesmart/sim"]
+
+[dependencies]
+# One dependency, which is also how a library consumer sees the project. Everything the tool
+# needs comes through the facade's re-exports, so a gap in them shows up here first.
+tesmart = { workspace = true, features = ["tcp"] }
+
+# A current-thread runtime is plenty: the tool runs one conversation at a time.
+tokio = { workspace = true, features = ["rt", "macros", "time", "signal"] }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
+serde = { workspace = true, features = ["std"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter", "ansi"] }
+anstream = { workspace = true }
+owo-colors = { workspace = true }
+humantime = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+insta = { workspace = true }
+predicates = { workspace = true }
+
+# Every integration test drives the binary against the in-process emulator.
+[[test]]
+name = "cli"
+required-features = ["sim"]
+
+[[test]]
+name = "errors"
+required-features = ["sim"]
+
+[[test]]
+name = "generate"
+required-features = ["sim"]
+
+[lints]
+workspace = true

@@ -43,7 +43,6 @@ pub enum Report {
     /// One registry entry in full.
     Model(Box<ModelDetailView>),
     /// This machine's serial ports.
-    #[cfg(feature = "serial")]
     Ports(Vec<SerialPortView>),
     /// A command whose output is the side effect: generated files, a finished watch.
     Done(DoneView),
@@ -538,7 +537,6 @@ impl ModelDetailView {
 }
 
 /// One of this machine's serial ports.
-#[cfg(feature = "serial")]
 #[derive(Debug, Serialize)]
 pub struct SerialPortView {
     /// The device file.

@@ -131,7 +131,12 @@ pub struct Global {
     pub ascii_dialect: DialectArg,
 
     /// Baud rate, for a serial target.
-    #[arg(long, global = true, value_name = "N", default_value_t = 9600, help_heading = "Tuning")]
+    #[arg(
+        long, global = true,
+        value_name = "N",
+        default_value_t = crate::target::DEFAULT_BAUD,
+        help_heading = "Tuning",
+    )]
     pub baud: u32,
 
     /// Keep one connection open instead of opening one per command.
@@ -198,11 +203,9 @@ pub enum Command {
     Models(ModelsCommand),
 
     /// List the serial ports this machine has.
-    #[cfg(feature = "serial")]
     Ports,
 
     /// Run an emulated switch, for testing without hardware.
-    #[cfg(feature = "sim")]
     #[command(subcommand)]
     Sim(SimCommand),
 
@@ -240,9 +243,7 @@ impl Command {
             Self::Raw(_) => "raw",
             Self::Models(ModelsCommand::List) => "models-list",
             Self::Models(ModelsCommand::Show { .. }) => "models-show",
-            #[cfg(feature = "serial")]
             Self::Ports => "ports",
-            #[cfg(feature = "sim")]
             Self::Sim(SimCommand::Serve(_)) => "sim-serve",
             Self::Completions { .. } => "completions",
             Self::Manpage { .. } => "manpage",
@@ -251,14 +252,14 @@ impl Command {
 
     /// Whether this command talks to a switch.
     pub fn needs_a_switch(&self) -> bool {
-        match self {
-            Self::Models(_) | Self::Completions { .. } | Self::Manpage { .. } => false,
-            #[cfg(feature = "serial")]
-            Self::Ports => false,
-            #[cfg(feature = "sim")]
-            Self::Sim(_) => false,
-            _ => true,
-        }
+        !matches!(
+            self,
+            Self::Models(_)
+                | Self::Completions { .. }
+                | Self::Manpage { .. }
+                | Self::Ports
+                | Self::Sim(_)
+        )
     }
 }
 
@@ -518,7 +519,6 @@ pub enum ModelsCommand {
 }
 
 /// The emulator.
-#[cfg(feature = "sim")]
 #[derive(Debug, Subcommand)]
 pub enum SimCommand {
     /// Serve an emulated switch over TCP until interrupted.
@@ -526,7 +526,6 @@ pub enum SimCommand {
 }
 
 /// How to emulate.
-#[cfg(feature = "sim")]
 #[derive(Debug, Args)]
 pub struct SimServeArgs {
     /// Address to listen on.
@@ -534,7 +533,7 @@ pub struct SimServeArgs {
     pub listen: std::net::SocketAddr,
 
     /// Which model to pretend to be.
-    #[arg(long, default_value = "HKS1601-EB23", value_name = "MODEL")]
+    #[arg(long, default_value = crate::target::DEFAULT_SIM_MODEL, value_name = "MODEL")]
     pub model: String,
 
     /// Behave perfectly, instead of the way hardware does.

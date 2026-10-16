@@ -1,7 +1,7 @@
 //! Running a command against a switch.
 //!
-//! The transport is resolved once, into the library's `tesmart::AnyConnector`, so everything
-//! below this point is generic over one concrete type rather than monomorphised per transport.
+//! The transport is resolved once, into [`crate::target::AnyConnector`], so everything below
+//! this point is generic over one concrete type rather than monomorphised per transport.
 
 use tesmart::client::{
     Confirmed, Connector, ErrorClass, Kvm, OpError, SwitchOptions, Verify, WatchOptions,
@@ -34,7 +34,7 @@ pub async fn execute(cli: &Cli, printer: &Printer) -> (Context, Result<Report, C
     }
 
     let options = handle::target_options(&cli.global);
-    let connector = match tesmart::resolve_with(&cli.global.target, options) {
+    let connector = match crate::target::resolve_with(&cli.global.target, options) {
         Ok(connector) => connector,
         Err(error) => {
             // Report against what the user typed, since nothing was resolved.
@@ -108,18 +108,15 @@ async fn with_transport<C: Connector>(
         Command::Matrix(_) => Err(CliError::usage("matrix commands need a matrix handle")),
 
         // Handled before a transport is ever opened.
-        Command::Models(_) | Command::Completions { .. } | Command::Manpage { .. } => {
-            Err(CliError::usage("this command does not talk to a switch"))
-        }
-        #[cfg(feature = "serial")]
-        Command::Ports => Err(CliError::usage("this command does not talk to a switch")),
-        #[cfg(feature = "sim")]
-        Command::Sim(_) => Err(CliError::usage("this command does not talk to a switch")),
+        Command::Models(_)
+        | Command::Completions { .. }
+        | Command::Manpage { .. }
+        | Command::Ports
+        | Command::Sim(_) => Err(CliError::usage("this command does not talk to a switch")),
     }
 }
 
 /// Everything that needs no switch.
-#[cfg_attr(not(feature = "sim"), allow(clippy::unused_async, unused_variables))]
 async fn local(cli: &Cli, printer: &Printer) -> Result<Report, CliError> {
     match &cli.command {
         Command::Models(ModelsCommand::List) => {
@@ -132,10 +129,8 @@ async fn local(cli: &Cli, printer: &Printer) -> Result<Report, CliError> {
             Ok(Report::Model(Box::new(ModelDetailView::new(found))))
         }
 
-        #[cfg(feature = "serial")]
         Command::Ports => ports(),
 
-        #[cfg(feature = "sim")]
         Command::Sim(crate::cli::SimCommand::Serve(args)) => {
             crate::simulate::serve(args, printer).await
         }
@@ -511,7 +506,6 @@ async fn raw<C: Connector>(kvm: &mut Kvm<C>, args: &RawArgs) -> Result<Report, C
     Ok(Report::Raw(RawView::new(&bytes, reply.as_ref())))
 }
 
-#[cfg(feature = "serial")]
 fn ports() -> Result<Report, CliError> {
     let ports = tesmart::serial::available_ports()
         .map_err(|error| CliError::usage(error.to_string()))?

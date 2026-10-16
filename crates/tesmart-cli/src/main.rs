@@ -5,8 +5,10 @@
 //! edges — a command that was sent but cannot be confirmed reads differently from one that was,
 //! both in the terminal and in `--output json`, and the exit code says which.
 //!
-//! Everything protocol-shaped comes through the facade, including target resolution, so this
-//! crate is also the first consumer to notice if the library is missing something.
+//! Everything protocol-shaped comes through the facade, down to the transports themselves, so
+//! this crate is also the first consumer to notice if the library is missing something. The one
+//! thing it keeps for itself is [`target`]: deciding whether `/dev/ttyUSB0` means a serial port
+//! only makes sense where there is a user to have typed it.
 
 use std::process::ExitCode;
 
@@ -20,8 +22,8 @@ mod handle;
 mod render;
 mod report;
 mod run;
-#[cfg(feature = "sim")]
 mod simulate;
+mod target;
 
 use crate::cli::{Cli, ColorChoice, Global};
 use crate::error::CliError;

@@ -248,7 +248,6 @@ mod human {
             Report::Raw(view) => raw(out, view),
             Report::Models(models) => model_list(out, models),
             Report::Model(view) => model_detail(out, view),
-            #[cfg(feature = "serial")]
             Report::Ports(ports) => serial_ports(out, ports),
             Report::Done(view) => writeln!(out, "{}", view.message),
         }
@@ -439,7 +438,6 @@ mod human {
         Ok(())
     }
 
-    #[cfg(feature = "serial")]
     fn serial_ports(
         out: &mut impl Write,
         ports: &[crate::report::SerialPortView],

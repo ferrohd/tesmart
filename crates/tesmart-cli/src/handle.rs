@@ -158,8 +158,8 @@ fn protocol_policy(global: &Global) -> Policy {
 }
 
 /// Transport settings that come from the global flags.
-pub fn target_options(global: &Global) -> tesmart::TargetOptions {
-    tesmart::TargetOptions { connect_timeout: global.connect_timeout, baud: global.baud }
+pub fn target_options(global: &Global) -> crate::target::TargetOptions {
+    crate::target::TargetOptions { connect_timeout: global.connect_timeout, baud: global.baud }
 }
 
 /// Something the user has tested on their own unit, overriding the registry.

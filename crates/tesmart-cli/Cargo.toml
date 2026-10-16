@@ -18,17 +18,17 @@ path = "src/main.rs"
 # binary yields: its internal docs are a developer convenience, not an interface.
 doc = false
 
-[features]
-default = ["serial", "sim"]
-# Drops tokio-serial and serialport entirely, for a TCP-only binary.
-serial = ["tesmart/serial"]
-# The in-process emulator behind `-t sim`, and the `sim serve` subcommand.
-sim = ["tesmart/sim"]
+# No features. Cargo features let a dependency's consumers avoid paying for what they do not
+# use, and a binary has no consumers: whoever runs `cargo install tesmart-cli` wants a tool that
+# can reach a switch however the switch is wired. RS232 is not an extra here — every TESmart
+# document is titled "LAN & RS232 Control Protocols" — and the emulator is how the thing is
+# usable without hardware. The facade keeps its transport features, because it really is a
+# dependency.
 
 [dependencies]
 # One dependency, which is also how a library consumer sees the project. Everything the tool
 # needs comes through the facade's re-exports, so a gap in them shows up here first.
-tesmart = { workspace = true, features = ["tcp"] }
+tesmart = { workspace = true, features = ["tcp", "serial", "sim"] }
 
 # A current-thread runtime is plenty: the tool runs one conversation at a time.
 tokio = { workspace = true, features = ["rt", "macros", "time", "signal"] }
@@ -48,19 +48,6 @@ thiserror = { workspace = true, features = ["std"] }
 assert_cmd = { workspace = true }
 insta = { workspace = true }
 predicates = { workspace = true }
-
-# Every integration test drives the binary against the in-process emulator.
-[[test]]
-name = "cli"
-required-features = ["sim"]
-
-[[test]]
-name = "errors"
-required-features = ["sim"]
-
-[[test]]
-name = "generate"
-required-features = ["sim"]
 
 [lints]
 workspace = true

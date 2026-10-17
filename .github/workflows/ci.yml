@@ -16,13 +16,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Every job is the same four steps against a different subcommand of ci/run.sh, which is also
-# what a developer runs locally:
+# Every job is the same four steps against a different recipe in the justfile, which is also what
+# a developer runs locally:
 #
-#   nix develop .#ci --command ci/run.sh <subcommand>
+#   nix develop .#ci --command just <recipe>
 #
 # The toolchain, its targets and every tool come from flake.nix, pinned by flake.lock, so there
 # is no `with: toolchain:` or install-action anywhere to drift from what is used locally.
+# `just all` runs the whole set in one go.
 #
 # All of it runs on ubuntu-latest. The two platforms we ship binaries for but cannot run tests on
 # are reached by `cargo check --target` in the `targets` job, and dist's own generated workflow
@@ -37,20 +38,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: fmt, job: fmt }
-          - { name: clippy, job: clippy }
-          - { name: doc, job: doc }
-          - { name: "test (all features)", job: test, args: --all-features }
-          - { name: "test (default features)", job: test }
-          - { name: "test (no default features)", job: test, args: --no-default-features }
-          - { name: feature combinations, job: features }
+          - { name: fmt, recipe: fmt }
+          - { name: clippy, recipe: clippy }
+          - { name: doc, recipe: doc }
+          - { name: "test (all features)", recipe: test, args: --all-features }
+          - { name: "test (default features)", recipe: test }
+          - { name: "test (no default features)", recipe: test, args: --no-default-features }
+          - { name: feature combinations, recipe: features }
           # Bare-metal builds, plus cross-checks for the shipped platforms we never run.
-          - { name: other targets, job: targets }
-          - { name: extended property tests, job: proptest }
-          - { name: publish preflight, job: publish }
-          - { name: supply chain, job: deny }
-          - { name: release packaging plan, job: dist }
-          - { name: workflow lint, job: workflows }
+          - { name: other targets, recipe: targets }
+          - { name: extended property tests, recipe: proptest }
+          - { name: publish preflight, recipe: publish }
+          - { name: supply chain, recipe: deny }
+          - { name: toml formatting, recipe: toml }
+          - { name: spelling, recipe: typos }
+          - { name: release packaging plan, recipe: dist }
+          - { name: workflow lint, recipe: workflows }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -66,10 +69,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           # One cache per job, and only master writes, so pull requests cannot evict each other.
-          shared-key: ${{ matrix.job }}${{ matrix.args }}
+          shared-key: ${{ matrix.recipe }}${{ matrix.args }}
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      - run: nix develop .#ci --command ci/run.sh ${{ matrix.job }} ${{ matrix.args }}
+      - run: nix develop .#ci --command just ${{ matrix.recipe }} ${{ matrix.args }}
 
   # Separate because it is the one job that does not use the pinned stable toolchain: the shell
   # provides a compiler matching Cargo.toml's rust-version instead.
@@ -92,7 +95,7 @@ jobs:
         with:
           shared-key: msrv
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - run: nix develop .#msrv --command ci/run.sh msrv
+      - run: nix develop .#msrv --command just msrv
 
   pr-title:
     name: pull request title

@@ -81,7 +81,7 @@ fn kvm(path: &str) -> Kvm<SerialConnector> {
         // The real defaults space commands a second apart and wait another second before
         // reading a port back. Both are tested where they belong, in `tesmart-client`; these
         // tests are about the tty.
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .switch_defaults(SwitchOptions::default().settle(Duration::ZERO))
         .build()
         .expect("a KVM model")

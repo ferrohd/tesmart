@@ -1,21 +1,21 @@
-//! What the attached switch is: family, port count, and what it is believed to support.
+//! What the attached switch is: protocol, port count, and what it is believed to support.
 //!
 //! Separate from [`ModelInfo`] because a switch nobody has catalogued still has to be drivable:
-//! give it a family and a port count and every capability starts out
+//! give it a protocol and a port count and every capability starts out
 //! [`Unverified`](Support::Unverified).
 
 use core::fmt;
 
 use tesmart_proto::model::ModelInfo;
-use tesmart_proto::{Capabilities, Family, PortCount, Profile as _, RequestKind, Support};
+use tesmart_proto::{Capabilities, CommandTable as _, PortCount, Protocol, RequestKind, Support};
 
 /// The switch an operation is talking to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModelSpec {
     /// The registry key, when the switch came from the registry.
     pub name: Option<&'static str>,
-    /// Which protocol family it speaks.
-    pub family: Family,
+    /// Which protocol it speaks.
+    pub protocol: Protocol,
     /// How many inputs it has.
     pub ports: PortCount,
     /// How many outputs it has. Only a matrix has more than two.
@@ -25,11 +25,11 @@ pub struct ModelSpec {
 }
 
 impl ModelSpec {
-    /// Takes family, ports and capabilities from a registry entry.
+    /// Takes protocol, ports and capabilities from a registry entry.
     pub fn from_model(model: &'static ModelInfo) -> Self {
         Self {
             name: Some(model.key),
-            family: model.family,
+            protocol: model.protocol,
             ports: model.ports,
             outputs: model.outputs,
             caps: model.caps,
@@ -38,14 +38,14 @@ impl ModelSpec {
 
     /// Describes a switch that is not in the registry.
     ///
-    /// Everything except switching starts out [`Support::Unverified`]: the family says which
+    /// Everything except switching starts out [`Support::Unverified`]: the protocol says which
     /// commands *exist*, and nothing says they work on this unit until someone tries.
     ///
     /// A matrix is assumed square and anything else single-output, which holds for every
     /// published model; set [`outputs`](Self::outputs) if yours differs.
-    pub fn custom(family: Family, ports: PortCount) -> Self {
-        let outputs = if family == Family::Matrix { ports } else { PortCount::MIN };
-        Self { name: None, family, ports, outputs, caps: Capabilities::UNVERIFIED }
+    pub fn custom(protocol: Protocol, ports: PortCount) -> Self {
+        let outputs = if protocol == Protocol::Matrix { ports } else { PortCount::MIN };
+        Self { name: None, protocol, ports, outputs, caps: Capabilities::UNVERIFIED }
     }
 
     /// Records something you have tested on your own unit.
@@ -64,7 +64,7 @@ impl ModelSpec {
             }
             RequestKind::NetQuery | RequestKind::NetSet => caps.net_config = support,
             // Everything else is covered by the baseline, which is not individually overridable:
-            // the family already decides whether the command exists at all.
+            // the protocol already decides whether the command exists at all.
             _ => caps.baseline = support,
         }
         self
@@ -72,10 +72,10 @@ impl ModelSpec {
 
     /// What is known about a kind of request on this switch.
     ///
-    /// A command the family does not have is [`Support::Unsupported`], whatever the capability
+    /// A command the protocol does not have is [`Support::Unsupported`], whatever the capability
     /// flags claim.
     pub fn support(&self, kind: RequestKind) -> Support {
-        if self.family.supports(kind) { self.caps.support(kind) } else { Support::Unsupported }
+        if self.protocol.supports(kind) { self.caps.support(kind) } else { Support::Unsupported }
     }
 
     /// Whether a kind of request is worth relying on.
@@ -98,8 +98,8 @@ impl From<&'static ModelInfo> for ModelSpec {
 impl fmt::Display for ModelSpec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.name {
-            Some(name) => write!(f, "{name} ({}, {} ports)", self.family, self.ports),
-            None => write!(f, "unknown {} switch ({} ports)", self.family, self.ports),
+            Some(name) => write!(f, "{name} ({}, {} ports)", self.protocol, self.ports),
+            None => write!(f, "unknown {} switch ({} ports)", self.protocol, self.ports),
         }
     }
 }
@@ -126,19 +126,19 @@ mod tests {
     }
 
     #[test]
-    fn an_override_cannot_invent_a_command_the_family_lacks() {
+    fn an_override_cannot_invent_a_command_the_protocol_lacks() {
         let spec = ModelSpec::from_model(model::lookup("dual-4port").unwrap())
             .with_capability(RequestKind::ReadActivePort, Support::Documented);
         assert_eq!(
             spec.support(RequestKind::ReadActivePort),
             Support::Unsupported,
-            "the dual-monitor family has no read command to enable"
+            "the dual-monitor protocol has no read command to enable"
         );
     }
 
     #[test]
     fn unknown_switches_start_unverified() {
-        let spec = ModelSpec::custom(Family::Kvm, PortCount::new(8).unwrap());
+        let spec = ModelSpec::custom(Protocol::Kvm, PortCount::new(8).unwrap());
         assert_eq!(spec.support(RequestKind::Switch), Support::Unverified);
         assert_eq!(spec.to_string(), "unknown kvm switch (8 ports)");
     }

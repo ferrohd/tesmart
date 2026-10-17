@@ -1,4 +1,4 @@
-//! Operations for HDMI matrices: family B.
+//! Operations for HDMI matrices, over the `matrix` protocol.
 //!
 //! A matrix is not a KVM with more outputs. It has no active port, no switch opcode and no hex
 //! protocol at all; it routes any input to any output with ASCII strings. It also has something
@@ -7,11 +7,11 @@
 //! > **it can be read back.**
 //!
 //! `MT00RD0000NT` answers with the whole routing table, so a route is the one write in this
-//! entire protocol family that can be confirmed rather than merely sent. That is why
+//! entire protocol that can be confirmed rather than merely sent. That is why
 //! [`Matrix::route`] returns a [`RouteOutcome`] with a real [`Verified`](RouteOutcome::Verified)
 //! case and [`Kvm::set_buzzer`](crate::Kvm::set_buzzer) can never do better than [`Sent`].
 //!
-//! What a given matrix supports varies by model rather than by family: the 4x4 series has a
+//! What a given matrix supports varies by model rather than by protocol: the 4x4 series has a
 //! display timeout and no presets, the 8x8 and 16x16 have presets and a buzzer and no display
 //! timeout, and the RS232-only 4x4 models have none of them. Each operation is gated on the
 //! registry, so asking an 8x8 for a display timeout is refused before a byte is sent.
@@ -21,7 +21,7 @@ use core::time::Duration;
 use tesmart_proto::engine::Policy;
 use tesmart_proto::model::ModelInfo;
 use tesmart_proto::value::{Buzzer, MatrixTimeout, NetSetting, Preset};
-use tesmart_proto::{Family, Port, PortCount, Request, RequestKind, Response, Support};
+use tesmart_proto::{Port, PortCount, Protocol, Request, RequestKind, Response, Support};
 
 use crate::error::{ClientError, OpError};
 use crate::kvm::BuildError;
@@ -96,7 +96,7 @@ impl<C: Connector> Matrix<C> {
     ///
     /// # Errors
     ///
-    /// [`BuildError::WrongFamily`] if the model is not a matrix.
+    /// [`BuildError::WrongProtocol`] if the model is not a matrix.
     pub fn from_model(connector: C, model: &'static ModelInfo) -> Result<Self, BuildError> {
         MatrixBuilder::new(connector).model(model).build()
     }
@@ -117,12 +117,12 @@ impl<C: Connector> Matrix<C> {
     }
 
     /// The underlying session, for raw exchanges and statistics.
-    pub fn session(&self) -> &Session<C, Family> {
+    pub fn session(&self) -> &Session<C, Protocol> {
         &self.ops.session
     }
 
     /// The underlying session.
-    pub fn session_mut(&mut self) -> &mut Session<C, Family> {
+    pub fn session_mut(&mut self) -> &mut Session<C, Protocol> {
         &mut self.ops.session
     }
 
@@ -276,8 +276,8 @@ impl<C: Connector> Matrix<C> {
     /// Mutes or unmutes the buzzer.
     ///
     /// Documented for the 8x8 and 16x16 series only. The wire values are inverted relative to
-    /// the KVM buzzer command, which the profile handles; [`Buzzer::Muted`] means muted here as
-    /// everywhere else.
+    /// the KVM buzzer command, which the command table handles; [`Buzzer::Muted`] means muted
+    /// here as everywhere else.
     ///
     /// # Errors
     ///
@@ -378,7 +378,7 @@ pub struct MatrixBuilder<C: Connector> {
     inputs: Option<PortCount>,
     outputs: Option<PortCount>,
     overrides: Vec<(RequestKind, Support)>,
-    protocol: Policy,
+    policy: Policy,
     connection: Option<ConnectionPolicy>,
     operation_timeout: Option<Duration>,
     defaults: RouteOptions,
@@ -392,7 +392,7 @@ impl<C: Connector> MatrixBuilder<C> {
             inputs: None,
             outputs: None,
             overrides: Vec::new(),
-            protocol: Policy::DEFAULT,
+            policy: Policy::DEFAULT,
             connection: None,
             operation_timeout: None,
             defaults: RouteOptions::default(),
@@ -429,8 +429,8 @@ impl<C: Connector> MatrixBuilder<C> {
 
     /// Sets the protocol timings and ASCII dialect.
     #[must_use]
-    pub fn protocol_policy(mut self, policy: Policy) -> Self {
-        self.protocol = policy;
+    pub fn policy(mut self, policy: Policy) -> Self {
+        self.policy = policy;
         self
     }
 
@@ -460,18 +460,18 @@ impl<C: Connector> MatrixBuilder<C> {
     /// # Errors
     ///
     /// [`BuildError::NoPortCount`] if neither a model nor an input count was given, and
-    /// [`BuildError::WrongFamily`] if the model is not a matrix.
+    /// [`BuildError::WrongProtocol`] if the model is not a matrix.
     pub fn build(self) -> Result<Matrix<C>, BuildError> {
-        // The model's own family wins, so pointing this at a KVM entry is refused rather than
-        // overridden. Without a model there is only one family this builder can mean.
-        let family = self.model.map_or(Family::Matrix, |model| model.family);
+        // The model's own protocol wins, so pointing this at a KVM entry is refused rather than
+        // overridden. Without a model there is only one protocol this builder can mean.
+        let protocol = self.model.map_or(Protocol::Matrix, |model| model.protocol);
         let Parts { mut spec } =
-            Parts::resolve(self.model, Some(family), self.inputs, self.outputs, Wanted::Matrix)?;
+            Parts::resolve(self.model, Some(protocol), self.inputs, self.outputs, Wanted::Matrix)?;
         for (kind, support) in self.overrides {
             spec = spec.with_capability(kind, support);
         }
 
-        let mut session = Session::with_policy(self.connector, spec.family, self.protocol);
+        let mut session = Session::with_policy(self.connector, spec.protocol, self.policy);
         if let Some(policy) = self.connection {
             session.set_connection_policy(policy);
         }

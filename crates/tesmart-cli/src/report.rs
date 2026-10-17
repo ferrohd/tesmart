@@ -12,7 +12,7 @@ use tesmart::client::{
 };
 use tesmart::proto::model::ModelInfo;
 use tesmart::proto::value::{NetConfig, NetField};
-use tesmart::proto::{Port, Profile as _, RequestKind, Response};
+use tesmart::proto::{CommandTable as _, Port, RequestKind, Response};
 
 /// Everything a command can produce.
 #[derive(Debug, Serialize)]
@@ -448,8 +448,8 @@ impl RawView {
 pub struct ModelSummaryView {
     /// The registry key.
     pub model: &'static str,
-    /// Which protocol family it speaks.
-    pub family: &'static str,
+    /// Which protocol it speaks.
+    pub protocol: &'static str,
     /// How many inputs it has.
     pub ports: u8,
     /// Whether it can report its active port, and on what evidence.
@@ -462,7 +462,7 @@ impl From<&'static ModelInfo> for ModelSummaryView {
     fn from(model: &'static ModelInfo) -> Self {
         Self {
             model: model.key,
-            family: model.family.name(),
+            protocol: model.protocol.name(),
             ports: model.ports.get(),
             read_port: model.support(RequestKind::ReadActivePort).name(),
             net_config: model.support(RequestKind::NetQuery).name(),
@@ -478,8 +478,8 @@ pub struct ModelDetailView {
     /// Other names that resolve to it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<&'static str>,
-    /// Which protocol family it speaks.
-    pub family: &'static str,
+    /// Which protocol it speaks.
+    pub protocol: &'static str,
     /// How many inputs it has.
     pub ports: u8,
     /// What it can do, and on what evidence.
@@ -507,10 +507,10 @@ pub struct CapabilityView {
 }
 
 impl ModelDetailView {
-    /// Describes a registry entry, including the family's command table.
+    /// Describes a registry entry, including the protocol's command table.
     pub fn new(model: &'static ModelInfo) -> Self {
         let capabilities = model
-            .family
+            .protocol
             .commands()
             .iter()
             .map(|entry| {
@@ -528,7 +528,7 @@ impl ModelDetailView {
         Self {
             model: model.key,
             aliases: model.aliases.to_vec(),
-            family: model.family.name(),
+            protocol: model.protocol.name(),
             ports: model.ports.get(),
             capabilities,
             notes: model.notes,

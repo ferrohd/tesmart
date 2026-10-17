@@ -27,7 +27,7 @@ fn eb23(faults: Faults) -> (Kvm<tesmart_sim::InProcess>, SimHandle) {
 
     let kvm = Kvm::builder(sim.connector())
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .build()
         .unwrap();
@@ -55,7 +55,7 @@ async fn reading_the_network_settings_normalises_the_padding() {
 async fn a_field_that_stays_silent_is_reported_not_fatal() {
     // Every second reply is lost, so some fields answer and some do not.
     let (mut kvm, _handle) = eb23(Faults { drop_every: NonZeroU8::new(2), ..Faults::NONE });
-    kvm.session_mut().set_protocol_policy(Policy::IMMEDIATE.with_max_retries(0));
+    kvm.session_mut().set_policy(Policy::IMMEDIATE.with_max_retries(0));
 
     let report = kvm.network().await.unwrap();
 
@@ -104,7 +104,7 @@ async fn writing_over_rs232_carries_the_disputed_warning() {
     // Same emulated switch, reached over a connector that claims to be a serial line.
     let mut kvm = Kvm::builder(PretendSerial { inner: sim.connector() })
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .build()
         .unwrap();
@@ -130,13 +130,13 @@ async fn a_matrix_over_rs232_uses_the_wrapped_commands() {
 
     let mut matrix = tesmart_client::Matrix::builder(PretendSerial { inner: sim.connector() })
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .build()
         .unwrap();
 
     // The policy was rewritten from the transport, without the builder being told.
-    assert_eq!(matrix.session().protocol_policy().ascii_scope, AsciiScope::Serial);
+    assert_eq!(matrix.session().policy().ascii_scope, AsciiScope::Serial);
 
     // And the emulated matrix answers the wrapped form, so the round trip really works.
     let report = matrix.network().await.unwrap();
@@ -160,11 +160,11 @@ async fn a_matrix_over_lan_uses_the_bare_commands() {
 
     let matrix = tesmart_client::Matrix::builder(sim.connector())
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .build()
         .unwrap();
 
-    assert_eq!(matrix.session().protocol_policy().ascii_scope, AsciiScope::Lan);
+    assert_eq!(matrix.session().policy().ascii_scope, AsciiScope::Lan);
 }
 
 #[tokio::test(start_paused = true)]
@@ -176,7 +176,7 @@ async fn the_tesmart_sh_dialect_is_understood_too() {
     // `IP?;` and `IP: 10.0.2.12;` rather than `IP?` and `IP:10.0.2.12;`.
     let mut kvm = Kvm::builder(sim.connector())
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE.with_ascii_dialect(AsciiDialect::TesmartSh))
+        .policy(Policy::IMMEDIATE.with_ascii_dialect(AsciiDialect::TesmartSh))
         .connection_policy(ConnectionPolicy::Persistent)
         .build()
         .unwrap();
@@ -215,11 +215,8 @@ async fn a_model_without_the_side_channel_refuses_before_sending() {
     let info = model::lookup("HKS801-M24").unwrap();
     let sim = Simulator::from_model(info);
     sim.handle().set_faults(Faults::NONE);
-    let mut kvm = Kvm::builder(sim.connector())
-        .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
-        .build()
-        .unwrap();
+    let mut kvm =
+        Kvm::builder(sim.connector()).model(info).policy(Policy::IMMEDIATE).build().unwrap();
 
     let report = kvm.network().await.unwrap();
     assert!(
@@ -231,14 +228,11 @@ async fn a_model_without_the_side_channel_refuses_before_sending() {
         report.warnings
     );
 
-    // The dual-monitor family has no side-channel at all, so there it is refused outright.
+    // The dual-monitor protocol has no side-channel at all, so there it is refused outright.
     let dual = model::lookup("dual-4port").unwrap();
     let sim = Simulator::from_model(dual);
-    let mut kvm = Kvm::builder(sim.connector())
-        .model(dual)
-        .protocol_policy(Policy::IMMEDIATE)
-        .build()
-        .unwrap();
+    let mut kvm =
+        Kvm::builder(sim.connector()).model(dual).policy(Policy::IMMEDIATE).build().unwrap();
 
     let error = kvm.network().await.unwrap_err();
     assert_eq!(error.class(), ErrorClass::Unsupported);

@@ -238,7 +238,7 @@ pub enum TransmitKind {
     Frame,
     /// An ASCII string.
     Ascii,
-    /// Caller-supplied bytes that bypassed the profile tables.
+    /// Caller-supplied bytes that bypassed the command tables.
     Raw,
 }
 

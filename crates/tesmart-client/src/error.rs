@@ -1,7 +1,7 @@
 //! What can go wrong, split by who can do something about it.
 //!
 //! [`ClientError`] is about the conversation: the link broke, the switch said nothing, the
-//! command does not exist in this family. The operation layer wraps it in
+//! command does not exist in this protocol. The operation layer wraps it in
 //! [`OpError`](crate::OpError), which adds what was being attempted and whether the result could
 //! be trusted.
 
@@ -21,7 +21,7 @@ pub enum ClientError {
     #[error(transparent)]
     Transport(#[from] TransportError),
 
-    /// The request never left: the profile has no such command, or the engine was busy.
+    /// The request never left: the protocol has no such command, or the engine was busy.
     #[error(transparent)]
     Rejected(#[from] SubmitError),
 
@@ -161,7 +161,7 @@ impl OpError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorClass {
-    /// The request was impossible: a port that does not exist, a command for another family.
+    /// The request was impossible: a port that does not exist, a command for another protocol.
     Usage,
     /// The link failed.
     Transport,

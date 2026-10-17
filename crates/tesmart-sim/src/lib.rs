@@ -15,14 +15,14 @@
 //! # #[tokio::main(flavor = "current_thread")] async fn main() {
 //! use tesmart_client::Session;
 //! use tesmart_proto::engine::Policy;
-//! use tesmart_proto::{Port, Request, Response, model, profile::Kvm};
+//! use tesmart_proto::{Port, Request, Response, model, protocol::KvmTable};
 //! use tesmart_sim::Simulator;
 //!
 //! let sim = Simulator::from_model(model::lookup("HKS1601-EB23").unwrap());
 //! let handle = sim.handle();
 //!
 //! // `IMMEDIATE` drops the 1 s command spacing. Against hardware, use `Policy::DEFAULT`.
-//! let mut session = Session::with_policy(sim.connector(), Kvm, Policy::IMMEDIATE);
+//! let mut session = Session::with_policy(sim.connector(), KvmTable, Policy::IMMEDIATE);
 //!
 //! session.exchange(Request::Switch(Port::new(4).unwrap())).await.unwrap();
 //! let active = session.exchange(Request::ReadActivePort).await.unwrap();
@@ -54,7 +54,7 @@ use tesmart_client::{Connector, TransportError, TransportKind};
 use tesmart_device::Device;
 use tesmart_proto::model::ModelInfo;
 use tesmart_proto::wire::Hex;
-use tesmart_proto::{Family, Port, PortCount};
+use tesmart_proto::{Port, PortCount, Protocol};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -105,17 +105,17 @@ impl Simulator {
         }
     }
 
-    /// Emulates a switch described only by family and port count, as an unknown model would be.
+    /// Emulates a switch described only by protocol and port count, as an unknown model would be.
     ///
     /// A matrix is assumed square, since every published TESmart matrix is. Use
     /// [`with_config`](Self::with_config) for anything else.
-    pub fn custom(family: Family, ports: PortCount, caps: tesmart_proto::Capabilities) -> Self {
-        let outputs = match family {
-            Family::Matrix => ports,
-            Family::Kvm | Family::KvmDual | Family::Sdi => PortCount::MIN,
+    pub fn custom(protocol: Protocol, ports: PortCount, caps: tesmart_proto::Capabilities) -> Self {
+        let outputs = match protocol {
+            Protocol::Matrix => ports,
+            Protocol::Kvm | Protocol::KvmDual | Protocol::Sdi => PortCount::MIN,
         };
         let config = DeviceConfig {
-            family,
+            protocol,
             ports,
             outputs,
             caps,

@@ -11,27 +11,27 @@ use tesmart_device::{Device, DeviceConfig, Faults};
 use tesmart_proto::command::ResponseKind;
 use tesmart_proto::engine::{Event, ExchangeError, Policy, SubmitError};
 use tesmart_proto::model;
-use tesmart_proto::profile::{Kvm, KvmDual};
+use tesmart_proto::protocol::{KvmDualTable, KvmTable};
 use tesmart_proto::time::Tick;
 use tesmart_proto::value::{
     Buzzer, DisplayTimeout, HotkeyTrigger, NetField, NetSetting, Output, Step, SwitchInterval,
     Toggle,
 };
-use tesmart_proto::{Engine, Port, Profile, Request, Response};
+use tesmart_proto::{CommandTable, Engine, Port, Request, Response};
 
 /// How many times the harness pumps the engine before declaring a livelock.
 const MAX_STEPS: usize = 64;
 
 /// A virtual cable between an engine and an emulated switch.
-struct Link<P: Profile> {
+struct Link<P: CommandTable> {
     engine: Engine<P, Tick>,
     device: Device,
     now: Tick,
 }
 
-impl<P: Profile> Link<P> {
-    fn new(profile: P, device: Device, policy: Policy) -> Self {
-        Self { engine: Engine::with_policy(profile, policy), device, now: Tick::ZERO }
+impl<P: CommandTable> Link<P> {
+    fn new(table: P, device: Device, policy: Policy) -> Self {
+        Self { engine: Engine::with_policy(table, policy), device, now: Tick::ZERO }
     }
 
     /// Runs one exchange to completion and returns the events it produced.
@@ -75,10 +75,10 @@ impl<P: Profile> Link<P> {
     }
 }
 
-fn eb23(faults: Faults) -> Link<Kvm> {
+fn eb23(faults: Faults) -> Link<KvmTable> {
     let model = model::lookup("HKS1601-EB23").unwrap();
     let device = Device::new(DeviceConfig::from_model(model).with_faults(faults));
-    Link::new(Kvm, device, Policy::DEFAULT)
+    Link::new(KvmTable, device, Policy::DEFAULT)
 }
 
 fn port(n: u8) -> Port {
@@ -140,7 +140,7 @@ fn the_network_round_trip_normalises_padding() {
 }
 
 #[test]
-fn every_family_a_command_reaches_the_switch() {
+fn every_kvm_command_reaches_the_switch() {
     let mut link = eb23(Faults::NONE);
 
     let requests = [
@@ -177,7 +177,7 @@ fn every_family_a_command_reaches_the_switch() {
 fn every_dual_monitor_command_reaches_the_switch() {
     let model = model::lookup("dual-4port").unwrap();
     let device = Device::new(DeviceConfig::from_model(model).with_faults(Faults::NONE));
-    let mut link = Link::new(KvmDual, device, Policy::DEFAULT);
+    let mut link = Link::new(KvmDualTable, device, Policy::DEFAULT);
 
     let requests = [
         Request::Switch(port(2)),
@@ -259,7 +259,7 @@ fn a_model_without_a_read_command_times_out_rather_than_lying() {
     // DKS0401A30 documents four switch commands and nothing else
     let model = model::lookup("DKS0401A30").unwrap();
     let device = Device::new(DeviceConfig::from_model(model).with_faults(Faults::NONE));
-    let mut link = Link::new(Kvm, device, Policy::DEFAULT);
+    let mut link = Link::new(KvmTable, device, Policy::DEFAULT);
 
     link.run(Request::Switch(port(3))).unwrap();
     assert_eq!(link.device.state().active_port.get(), 3);
@@ -303,7 +303,7 @@ proptest! {
             _ => "HKS1601-EB23",
         }).unwrap();
         let device = Device::new(DeviceConfig::from_model(model).with_faults(Faults::NONE));
-        let mut link = Link::new(Kvm, device, Policy::IMMEDIATE);
+        let mut link = Link::new(KvmTable, device, Policy::IMMEDIATE);
 
         link.run(Request::Switch(port(human))).unwrap();
         let events = link.run(Request::ReadActivePort).unwrap();

@@ -202,7 +202,7 @@ fn raw_needs_no_model() {
 #[test]
 fn the_registry_lists_what_it_knows_and_how_well() {
     let out = stdout(&["models", "list"]);
-    assert!(out.starts_with("MODEL          FAMILY    PORTS  READ-PORT     NET\n"), "{out}");
+    assert!(out.starts_with("MODEL          PROTOCOL  PORTS  READ-PORT     NET\n"), "{out}");
     assert!(out.contains("DKS0401A30     kvm           4  unsupported   unverified"), "{out}");
     assert!(out.contains("HKS801-EB23    kvm           8  field-tested  field-tested"), "{out}");
     assert!(out.contains("dual-4port     kvm-dual      4  unsupported   unsupported"), "{out}");

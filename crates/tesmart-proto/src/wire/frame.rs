@@ -32,8 +32,8 @@ pub const MAX_LEN_BYTE: u8 = 0x08;
 
 /// The only opcode a switch is documented to *send*: the reply to a read-port request.
 ///
-/// It lives here rather than in a profile because the decoder needs it to turn a frame into a
-/// port number; profiles decide what, if anything, it means for their family.
+/// It lives here rather than in a command table because the decoder needs it to turn a frame into a
+/// port number; command tables decide what, if anything, it means for their protocol.
 pub const OPCODE_PORT_REPORT: u8 = 0x11;
 
 /// The data bytes of a frame.

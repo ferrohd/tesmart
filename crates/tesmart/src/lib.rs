@@ -64,7 +64,7 @@
 //! say what happened".
 //!
 //! Matrices are the exception: they report their whole routing table, so
-//! [`Matrix::route`](client::Matrix::route) is the one write in any TESmart family whose effect
+//! [`Matrix::route`](client::Matrix::route) is the one write in any TESmart protocol whose effect
 //! can actually be confirmed.
 
 pub use tesmart_client as client;
@@ -83,12 +83,12 @@ pub use tesmart_client::{
     RoutingReport, Sent, SwitchOutcome, TransportKind, Warning,
 };
 pub use tesmart_proto::value::{Buzzer, DisplayTimeout, MatrixTimeout, NetSetting, Preset, Toggle};
-pub use tesmart_proto::{Family, Port, PortCount, Request, Response, Support, model};
+pub use tesmart_proto::{Port, PortCount, Protocol, Request, Response, Support, model};
 
 /// Everything needed to drive a switch, for `use tesmart::prelude::*`.
 pub mod prelude {
     pub use crate::client::{Connector as _, Kvm, Matrix, OpError};
-    pub use crate::proto::{Family, Port, Support};
+    pub use crate::proto::{Port, Protocol, Support};
     pub use crate::{RouteOutcome, SwitchOutcome};
 }
 
@@ -101,7 +101,7 @@ mod tests {
         // If any of these stop resolving, the facade is not actually usable on its own.
         let port = Port::new(4).unwrap();
         assert_eq!(port.get(), 4);
-        assert_eq!(Family::Kvm.name(), "kvm");
+        assert_eq!(Protocol::Kvm.name(), "kvm");
         assert!(model::lookup("HKS1601-EB23").is_some());
         assert_eq!(Buzzer::Muted.to_string(), "muted");
         assert_eq!(Support::Documented.name(), "documented");

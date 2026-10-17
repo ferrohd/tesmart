@@ -1,6 +1,6 @@
-//! Family B in the emulator: routing, presets, the buzzer and the `LINK:` report.
+//! The `matrix` protocol in the emulator: routing, presets, the buzzer and the `LINK:` report.
 //!
-//! The only family whose state a controller can read back, which is why these tests can assert
+//! The only protocol whose state a controller can read back, which is why these tests can assert
 //! what the emulated matrix *did* rather than only what it was sent.
 
 use crate::{Device, SEGMENT, allows};
@@ -54,7 +54,7 @@ impl Routing {
 }
 
 impl Device {
-    /// Family B. Routing is the only thing a matrix will tell you about.
+    /// The `matrix` protocol. Routing is the only thing a matrix will tell you about.
     ///
     /// Called by the dispatcher in [`super`].
     pub(super) fn matrix_command(&mut self, command: MatrixCommand) {
@@ -97,7 +97,7 @@ impl Device {
             // The second is the price of the crate split: `MatrixCommand` is
             // `#[non_exhaustive]`, so a new variant cannot be a compile error here the way it
             // would be inside one crate. The equivalent guarantee on the controller side is
-            // intact, because `Request` and the profile tables live together in `tesmart-proto`.
+            // intact, because `Request` and the command tables live together in `tesmart-proto`.
             _ => {}
         }
     }

@@ -1,6 +1,6 @@
-//! Family C: the 4x1 SDI switch.
+//! The `sdi` protocol: the 4x1 SDI switch.
 //!
-//! One model, `SSW04010A10`, and one command. It is a separate family because it shares neither
+//! One model, `SSW04010A10`, and one command. It is a separate protocol because it shares neither
 //! the header nor the framing of anything else TESmart makes:
 //!
 //! | Command | Bytes |
@@ -16,31 +16,31 @@
 //! defines no other, it is treated here as part of a fixed prefix rather than as a length.
 //!
 //! The switch reports nothing. There is no read command, no settings, and no acknowledgement,
-//! so every exchange in this family completes as [`Response::Accepted`] without the switch
+//! so every exchange in this protocol completes as [`Response::Accepted`] without the switch
 //! having confirmed anything.
 //!
 //! Source: TESmart's `SSW0401A10-Communication-protocol` document (9600 8N1, parity none).
 
 use crate::command::{CommandInfo, Request, RequestKind, Response};
 use crate::port::Port;
-use crate::profile::{Family, Profile, Unsupported, sealed};
+use crate::protocol::{CommandTable, Protocol, Unsupported, sealed};
 use crate::wire::{AsciiStyle, Chunk, Transmit, TransmitKind, WireBytes};
 
 /// The fixed prefix every command carries: header `AA CC` and the constant `01`.
 pub const PREFIX: [u8; 3] = [0xAA, 0xCC, 0x01];
 
-/// How many inputs the one model in this family has.
+/// How many inputs the one model in this protocol has.
 pub const INPUTS: u8 = 4;
 
 /// The SDI command table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Sdi;
+pub struct SdiTable;
 
-impl sealed::Sealed for Sdi {}
+impl sealed::Sealed for SdiTable {}
 
-impl Profile for Sdi {
-    fn family(self) -> Family {
-        Family::Sdi
+impl CommandTable for SdiTable {
+    fn protocol(self) -> Protocol {
+        Protocol::Sdi
     }
 
     fn encode(self, request: Request, _style: AsciiStyle) -> Result<Transmit, Unsupported> {
@@ -66,7 +66,7 @@ impl Profile for Sdi {
             | Request::MatrixDisplayTimeout(_)
             | Request::MatrixBuzzer(_)
             | Request::MatrixLoadPreset(_)
-            | Request::MatrixSavePreset(_) => Err(Unsupported::new(Family::Sdi, request.kind())),
+            | Request::MatrixSavePreset(_) => Err(Unsupported::new(Protocol::Sdi, request.kind())),
         }
     }
 
@@ -94,8 +94,9 @@ mod tests {
     use super::*;
 
     fn encode(request: Request) -> std::vec::Vec<u8> {
-        Sdi.encode(request, AsciiStyle::DEFAULT)
-            .expect("supported by family C")
+        SdiTable
+            .encode(request, AsciiStyle::DEFAULT)
+            .expect("supported by the sdi protocol")
             .bytes()
             .as_slice()
             .to_vec()
@@ -117,17 +118,17 @@ mod tests {
     }
 
     #[test]
-    fn nothing_else_is_in_the_family() {
-        let error = Sdi
+    fn nothing_else_is_in_the_protocol() {
+        let error = SdiTable
             .encode(Request::ReadActivePort, AsciiStyle::DEFAULT)
             .expect_err("an SDI switch cannot be read");
-        assert_eq!(error.family, Family::Sdi);
+        assert_eq!(error.protocol, Protocol::Sdi);
         assert!(std::format!("{error}").contains("does not report"), "{error}");
     }
 
     #[test]
     fn it_never_interprets_anything() {
-        assert_eq!(Sdi.decode(&Chunk::PortReport(Port::FIRST)), None);
-        assert_eq!(Sdi.decode(&Chunk::Ascii("OK")), None);
+        assert_eq!(SdiTable.decode(&Chunk::PortReport(Port::FIRST)), None);
+        assert_eq!(SdiTable.decode(&Chunk::Ascii("OK")), None);
     }
 }

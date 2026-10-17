@@ -3,7 +3,7 @@
 //! Each setting gets its own type rather than a shared boolean, because the wire values are not
 //! consistent: `0x00` means *mute* for the buzzer but *off* for auto input detect, and on
 //! dual-monitor switches the keyboard/mouse pass-through values are inverted. Naming each
-//! setting keeps those surprises in one place (the profile tables) instead of at every call site.
+//! setting keeps those surprises in one place (the command tables) instead of at every call site.
 
 use core::fmt;
 use core::net::Ipv4Addr;
@@ -57,7 +57,8 @@ impl fmt::Display for Buzzer {
 /// How long the front panel display stays lit after a change.
 ///
 /// Opcode `0x03` on single-monitor KVMs, values `0x0A` / `0x1E` / `0x00`. The same opcode means
-/// something entirely different on dual-monitor switches, which is why it lives behind a profile.
+/// something entirely different on dual-monitor switches, which is why it lives behind a command
+/// table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]

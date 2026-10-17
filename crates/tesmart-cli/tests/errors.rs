@@ -34,7 +34,7 @@ fn bad_arguments_are_clap_s_exit_code_two() {
 fn a_missing_model_explains_both_ways_out() {
     let stderr = fails(&["-t", "sim", "get"], 2);
     assert!(stderr.contains("pass -m <MODEL>"), "{stderr}");
-    assert!(stderr.contains("-f kvm --ports 8"), "{stderr}");
+    assert!(stderr.contains("-p kvm --ports 8"), "{stderr}");
     // And why, because the reason is the whole point of refusing.
     assert!(stderr.contains("0x03"), "{stderr}");
 }

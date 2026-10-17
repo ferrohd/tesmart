@@ -60,9 +60,9 @@ pub struct Global {
     #[arg(short, long, global = true, env = "TESMART_MODEL", value_name = "MODEL")]
     pub model: Option<String>,
 
-    /// Protocol family, for a switch that is not in the registry.
-    #[arg(short, long, global = true, env = "TESMART_FAMILY", value_name = "FAMILY")]
-    pub family: Option<FamilyArg>,
+    /// Which protocol the switch speaks, for a switch that is not in the registry.
+    #[arg(short, long, global = true, env = "TESMART_PROTOCOL", value_name = "PROTOCOL")]
+    pub protocol: Option<ProtocolArg>,
 
     /// How many inputs the switch has, for a switch that is not in the registry.
     #[arg(long, global = true, env = "TESMART_PORTS", value_name = "N")]
@@ -573,9 +573,9 @@ pub enum ColorChoice {
     Never,
 }
 
-/// A protocol family.
+/// One of the four TESmart control protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum FamilyArg {
+pub enum ProtocolArg {
     /// Single-monitor KVM switches.
     Kvm,
     /// Dual-monitor KVM switches.
@@ -586,13 +586,13 @@ pub enum FamilyArg {
     Sdi,
 }
 
-impl From<FamilyArg> for tesmart::proto::Family {
-    fn from(family: FamilyArg) -> Self {
-        match family {
-            FamilyArg::Kvm => Self::Kvm,
-            FamilyArg::KvmDual => Self::KvmDual,
-            FamilyArg::Matrix => Self::Matrix,
-            FamilyArg::Sdi => Self::Sdi,
+impl From<ProtocolArg> for tesmart::proto::Protocol {
+    fn from(protocol: ProtocolArg) -> Self {
+        match protocol {
+            ProtocolArg::Kvm => Self::Kvm,
+            ProtocolArg::KvmDual => Self::KvmDual,
+            ProtocolArg::Matrix => Self::Matrix,
+            ProtocolArg::Sdi => Self::Sdi,
         }
     }
 }

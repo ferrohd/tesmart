@@ -4,7 +4,7 @@
 //! side-channel (`IP?`, `PT:5000;`) and the dispatch that tells the two apart; the matrix
 //! command language lives in [`crate::wire::matrix`].
 //!
-//! Family A KVMs carry their network settings as bare ASCII on the same connection as the hex
+//! Single-monitor KVMs carry their network settings as bare ASCII on the same connection as the hex
 //! frames, with no framing of any kind. None of this is in TESmart's protocol PDFs; it comes
 //! from packet captures of the official Windows controller and from community tools.
 //!
@@ -20,7 +20,7 @@
 //!
 //! # Two scopes, for matrices
 //!
-//! Matrices are the one family where TESmart *documents* this channel, and they document it
+//! Matrices are the one protocol where TESmart *documents* this channel, and they document it
 //! twice: the bare strings above work over LAN, while RS232 needs the same commands wrapped in
 //! an `MT80xx` prefix. See [`AsciiScope`].
 //!
@@ -61,7 +61,7 @@ pub enum AsciiDialect {
 /// documents, so sending the wrong one is expected to be ignored. Replies are identical in both
 /// scopes, which is why only the encoder is scope aware.
 ///
-/// Family A KVMs have no wrapped form documented or captured, so they ignore this.
+/// Single-monitor KVMs have no wrapped form documented or captured, so they ignore this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]

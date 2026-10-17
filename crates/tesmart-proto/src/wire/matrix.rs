@@ -1,8 +1,8 @@
 //! The matrix command language: `MT00…NT` strings and the `LINK:` routing report.
 //!
-//! Family B speaks a different language from everything else TESmart makes. It shares the
-//! transport with the network side-channel in [`ascii`](crate::wire::ascii), and nothing else:
-//! the grammar, the vocabulary and the reply format are all its own.
+//! The `matrix` protocol speaks a different language from everything else TESmart makes. It
+//! shares the transport with the network side-channel in [`ascii`](crate::wire::ascii), and
+//! nothing else: the grammar, the vocabulary and the reply format are all its own.
 //!
 //! | Command | Meaning |
 //! | --- | --- |
@@ -19,7 +19,7 @@
 //! while `MT00RD01XXNT` loads a preset, one character apart. And the buzzer values are
 //! **inverted** against the KVM `0x02` command, where `0x00` mutes.
 //!
-//! Encoding the commands is the [`Matrix`](crate::profile::Matrix) profile's job; this module
+//! Encoding the commands is [`MatrixTable`](crate::protocol::MatrixTable)'s job; this module
 //! parses them, which is what the device emulator needs, and owns the routing report in both
 //! directions.
 //!

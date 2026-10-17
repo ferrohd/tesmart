@@ -1,6 +1,6 @@
 //! What [`Kvm`](crate::Kvm) and [`Matrix`](crate::Matrix) have in common.
 //!
-//! The two operation types drive different families, but they sit on the same session, consult
+//! The two operation types drive different protocols, but they sit on the same session, consult
 //! the same capability flags, and share one command: the ASCII network side-channel, which is
 //! the same four strings on a KVM and on a matrix.
 //!
@@ -10,7 +10,7 @@
 
 use tesmart_proto::model::ModelInfo;
 use tesmart_proto::value::{NetConfig, NetField, NetSetting};
-use tesmart_proto::{Family, Port, Request, RequestKind, Response, Support};
+use tesmart_proto::{Port, Protocol, Request, RequestKind, Response, Support};
 
 use crate::error::{ClientError, OpError};
 use crate::outcome::{Confirmed, NetOutcome, NetReport, Sent, Warning};
@@ -20,12 +20,12 @@ use crate::transport::Connector;
 
 /// A session plus what the switch on the other end is believed to be.
 pub(crate) struct Ops<C: Connector> {
-    pub(crate) session: Session<C, Family>,
+    pub(crate) session: Session<C, Protocol>,
     pub(crate) spec: ModelSpec,
 }
 
 impl<C: Connector> Ops<C> {
-    pub(crate) const fn new(session: Session<C, Family>, spec: ModelSpec) -> Self {
+    pub(crate) const fn new(session: Session<C, Protocol>, spec: ModelSpec) -> Self {
         Self { session, spec }
     }
 
@@ -152,7 +152,7 @@ impl<C: Connector> Ops<C> {
     /// over a serial line.
     pub(crate) fn net_warnings(&self, kind: RequestKind) -> Vec<Warning> {
         let mut warnings = self.warnings(kind);
-        if self.spec.family != Family::Matrix
+        if self.spec.protocol != Protocol::Matrix
             && !self.session.transport_kind().net_config_is_documented()
         {
             warnings.push(Warning::NetConfigOverSerial);
@@ -161,7 +161,7 @@ impl<C: Connector> Ops<C> {
     }
 }
 
-/// Which operation type is being built, and therefore which families it accepts.
+/// Which operation type is being built, and therefore which protocols it accepts.
 ///
 /// One value rather than a predicate plus a label, so the test and the error message it
 /// produces cannot drift apart.
@@ -174,14 +174,14 @@ pub(crate) enum Wanted {
 }
 
 impl Wanted {
-    const fn accepts(self, family: Family) -> bool {
+    const fn accepts(self, protocol: Protocol) -> bool {
         match self {
-            Self::Kvm => !matches!(family, Family::Matrix),
-            Self::Matrix => matches!(family, Family::Matrix),
+            Self::Kvm => !matches!(protocol, Protocol::Matrix),
+            Self::Matrix => matches!(protocol, Protocol::Matrix),
         }
     }
 
-    /// What [`BuildError::WrongFamily`](crate::BuildError::WrongFamily) reports as expected.
+    /// What [`BuildError::WrongProtocol`](crate::BuildError::WrongProtocol) reports as expected.
     const fn describe(self) -> &'static str {
         match self {
             Self::Kvm => "a KVM switch",
@@ -190,9 +190,9 @@ impl Wanted {
     }
 }
 
-/// Builds the family and port count every operation type needs.
+/// Builds the protocol and port count every operation type needs.
 ///
-/// Shared by both builders so that "no family" and "no port count" are refused identically, and
+/// Shared by both builders so that "no protocol" and "no port count" are refused identically, and
 /// a model's outputs are not silently forgotten.
 pub(crate) struct Parts {
     pub(crate) spec: ModelSpec,
@@ -201,27 +201,30 @@ pub(crate) struct Parts {
 impl Parts {
     pub(crate) fn resolve(
         model: Option<&'static ModelInfo>,
-        family: Option<Family>,
+        protocol: Option<Protocol>,
         ports: Option<tesmart_proto::PortCount>,
         outputs: Option<tesmart_proto::PortCount>,
         wanted: Wanted,
     ) -> Result<Self, crate::kvm::BuildError> {
         use crate::kvm::BuildError;
 
-        let family =
-            family.or_else(|| model.map(|model| model.family)).ok_or(BuildError::NoFamily)?;
+        let protocol =
+            protocol.or_else(|| model.map(|model| model.protocol)).ok_or(BuildError::NoProtocol)?;
         let ports =
             ports.or_else(|| model.map(|model| model.ports)).ok_or(BuildError::NoPortCount)?;
 
-        if !wanted.accepts(family) {
-            return Err(BuildError::WrongFamily { expected: wanted.describe(), actual: family });
+        if !wanted.accepts(protocol) {
+            return Err(BuildError::WrongProtocol {
+                expected: wanted.describe(),
+                actual: protocol,
+            });
         }
 
         let mut spec = match model {
             Some(model) => ModelSpec::from_model(model),
-            None => ModelSpec::custom(family, ports),
+            None => ModelSpec::custom(protocol, ports),
         };
-        spec.family = family;
+        spec.protocol = protocol;
         spec.ports = ports;
         if let Some(outputs) = outputs {
             spec.outputs = outputs;
@@ -229,7 +232,7 @@ impl Parts {
             // Without a registry entry, a matrix is assumed square and anything else
             // single-output, which is true of every published model.
             spec.outputs =
-                if family == Family::Matrix { ports } else { tesmart_proto::PortCount::MIN };
+                if protocol == Protocol::Matrix { ports } else { tesmart_proto::PortCount::MIN };
         }
 
         Ok(Self { spec })

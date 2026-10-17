@@ -125,9 +125,9 @@ mod tests {
 
     #[test]
     fn a_missing_model_is_a_usage_problem() {
-        let error = CliError::from(BuildError::NoFamily);
+        let error = CliError::from(BuildError::NoProtocol);
         assert_eq!(error.class(), ErrorClass::Usage);
-        assert!(error.chain().contains("no protocol family"), "{}", error.chain());
+        assert!(error.chain().contains("no protocol"), "{}", error.chain());
     }
 
     #[test]

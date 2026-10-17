@@ -1,9 +1,9 @@
 //! What you can ask a switch, and what it can answer.
 //!
-//! [`Request`] is family independent on purpose: the same `Switch(Port)` works on a 16x1 KVM and
+//! [`Request`] is protocol independent on purpose: the same `Switch(Port)` works on a 16x1 KVM and
 //! on a dual-monitor one, while `DisplayTimeout` only exists on single-monitor models. Which
-//! requests a given switch understands is decided by the [`Profile`](crate::Profile), and a
-//! request outside the active profile is refused before a single byte is sent.
+//! requests a given switch understands is decided by the [`CommandTable`](crate::CommandTable),
+//! and a request outside the active protocol is refused before a single byte is sent.
 
 use core::fmt;
 
@@ -171,7 +171,7 @@ impl fmt::Display for Request {
     }
 }
 
-/// A [`Request`] without its argument: what profiles and capabilities are keyed on.
+/// A [`Request`] without its argument: what command tables and capabilities are keyed on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -307,10 +307,10 @@ pub enum Response {
     /// A matrix routing report.
     Routing(RoutingReply),
 
-    /// A frame that no profile interprets. Only produced for raw exchanges.
+    /// A frame that no command table interprets. Only produced for raw exchanges.
     Frame(Frame),
 
-    /// Text that no profile interprets. Only produced for raw exchanges.
+    /// Text that no command table interprets. Only produced for raw exchanges.
     Text(WireBytes),
 }
 
@@ -387,7 +387,7 @@ impl fmt::Display for ResponseKind {
     }
 }
 
-/// One entry of a profile's command table, for introspection and help output.
+/// One entry of one command table, for introspection and help output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandInfo {
     /// The request this entry describes.

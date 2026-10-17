@@ -1,8 +1,8 @@
-//! The commands that mean the same thing in every hex family.
+//! The commands that mean the same thing in every hex protocol.
 //!
-//! Only two opcodes are safe to send without knowing which kind of switch is attached. Both hex
-//! profiles build them from here, so the 1-based write encoding of a port number exists in
-//! exactly one place.
+//! Only two opcodes are safe to send without knowing which kind of switch is attached. Both
+//! hex command tables build them from here, so the 1-based write encoding of a port number
+//! exists in exactly one place.
 
 use crate::command::Response;
 use crate::port::Port;
@@ -25,11 +25,11 @@ pub(crate) fn buzzer(buzzer: Buzzer) -> Transmit {
     Frame::one(OPCODE_BUZZER, buzzer.to_byte()).to_transmit()
 }
 
-/// Interprets anything a hex-family switch can say.
+/// Interprets anything a hex-protocol switch can say.
 ///
-/// Both single- and dual-monitor profiles share this: a `0x11` port report is a port report
+/// Both the single- and dual-monitor tables share this: a `0x11` port report is a port report
 /// either way, and the ASCII side-channel is identical.
-pub(crate) fn decode_hex_family(chunk: &Chunk<'_>) -> Option<Response> {
+pub(crate) fn decode_hex(chunk: &Chunk<'_>) -> Option<Response> {
     match chunk {
         Chunk::PortReport(port) => Some(Response::ActivePort(*port)),
         Chunk::Ascii(text) => decode_ascii(text),

@@ -16,7 +16,7 @@ categories = ["no-std", "network-programming", "parser-implementations"]
 # here: everyone needs the controller, almost nobody needs the device, and a feature that gates
 # a thousand lines of self-contained code is a crate boundary wearing a disguise.
 [features]
-# `serde` derives on the small value types (ports, families, capabilities).
+# `serde` derives on the small value types (ports, protocols, capabilities).
 serde = ["dep:serde"]
 
 [dependencies]

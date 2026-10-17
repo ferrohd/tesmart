@@ -2,7 +2,7 @@
 //!
 //! If any of these change, the protocol reference has to change with them.
 
-use tesmart_proto::profile::{Kvm, KvmDual, Matrix, Sdi};
+use tesmart_proto::protocol::{KvmDualTable, KvmTable, MatrixTable, SdiTable};
 use tesmart_proto::value::{
     Buzzer, DisplayTimeout, HotkeyTrigger, MatrixTimeout, NetField, NetSetting, Output, Preset,
     Step, SwitchInterval, Toggle,
@@ -10,18 +10,18 @@ use tesmart_proto::value::{
 use tesmart_proto::wire::{
     AsciiDialect, AsciiScope, AsciiStyle, Chunk, Frame, Payload, StreamDecoder,
 };
-use tesmart_proto::{Port, Profile, Request, Response};
+use tesmart_proto::{CommandTable, Port, Request, Response};
 
 fn port(n: u8) -> Port {
     Port::new(n).unwrap()
 }
 
-fn bytes<P: Profile>(profile: P, request: Request) -> Vec<u8> {
-    styled(profile, request, AsciiStyle::DEFAULT)
+fn bytes<P: CommandTable>(table: P, request: Request) -> Vec<u8> {
+    styled(table, request, AsciiStyle::DEFAULT)
 }
 
-fn styled<P: Profile>(profile: P, request: Request, style: AsciiStyle) -> Vec<u8> {
-    profile
+fn styled<P: CommandTable>(table: P, request: Request, style: AsciiStyle) -> Vec<u8> {
+    table
         .encode(request, style)
         .unwrap_or_else(|error| panic!("{error}"))
         .bytes()
@@ -30,7 +30,7 @@ fn styled<P: Profile>(profile: P, request: Request, style: AsciiStyle) -> Vec<u8
 }
 
 #[test]
-fn family_a_frames() {
+fn kvm_frames() {
     let vectors: &[(Request, &[u8])] = &[
         // switch, the one command every series documents
         (Request::Switch(port(1)), &[0xAA, 0xBB, 0x03, 0x01, 0x01, 0xEE]),
@@ -51,12 +51,12 @@ fn family_a_frames() {
     ];
 
     for (request, expected) in vectors {
-        assert_eq!(bytes(Kvm, *request), *expected, "{request}");
+        assert_eq!(bytes(KvmTable, *request), *expected, "{request}");
     }
 }
 
 #[test]
-fn family_a_ascii() {
+fn kvm_ascii() {
     let vectors: &[(Request, &str)] = &[
         (Request::NetQuery(NetField::Ip), "IP?"),
         (Request::NetQuery(NetField::Port), "PT?"),
@@ -69,36 +69,37 @@ fn family_a_ascii() {
     ];
 
     for (request, expected) in vectors {
-        assert_eq!(bytes(Kvm, *request), expected.as_bytes(), "{request}");
+        assert_eq!(bytes(KvmTable, *request), expected.as_bytes(), "{request}");
     }
 }
 
 #[test]
-fn family_a_ascii_in_the_tesmart_sh_dialect() {
+fn kvm_ascii_in_the_tesmart_sh_dialect() {
     let style = AsciiStyle::new(AsciiDialect::TesmartSh);
-    let query = Kvm.encode(Request::NetQuery(NetField::Ip), style).unwrap();
+    let query = KvmTable.encode(Request::NetQuery(NetField::Ip), style).unwrap();
     assert_eq!(&*query, b"IP?;");
 
-    let set =
-        Kvm.encode(Request::NetSet(NetSetting::Ip("10.0.2.12".parse().unwrap())), style).unwrap();
+    let set = KvmTable
+        .encode(Request::NetSet(NetSetting::Ip("10.0.2.12".parse().unwrap())), style)
+        .unwrap();
     assert_eq!(&*set, b"IP: 10.0.2.12;");
 }
 
 /// A KVM has no wrapped form, so the scope must not change a single byte it sends.
 #[test]
-fn family_a_ignores_the_ascii_scope() {
+fn kvm_ignores_the_ascii_scope() {
     let serial = AsciiStyle::DEFAULT.with_scope(AsciiScope::Serial);
     for request in [
         Request::NetQuery(NetField::Ip),
         Request::NetSet(NetSetting::Port(5000)),
         Request::Switch(port(3)),
     ] {
-        assert_eq!(bytes(Kvm, request), styled(Kvm, request, serial), "{request}");
+        assert_eq!(bytes(KvmTable, request), styled(KvmTable, request, serial), "{request}");
     }
 }
 
 #[test]
-fn family_a_prime_frames() {
+fn kvm_dual_frames() {
     let vectors: &[(Request, &[u8])] = &[
         (Request::Switch(port(4)), &[0xAA, 0xBB, 0x03, 0x01, 0x04, 0xEE]),
         (Request::Buzzer(Buzzer::Muted), &[0xAA, 0xBB, 0x03, 0x02, 0x00, 0xEE]),
@@ -138,12 +139,12 @@ fn family_a_prime_frames() {
     ];
 
     for (request, expected) in vectors {
-        assert_eq!(bytes(KvmDual, *request), *expected, "{request}");
+        assert_eq!(bytes(KvmDualTable, *request), *expected, "{request}");
     }
 }
 
 #[test]
-fn family_b_strings() {
+fn matrix_strings() {
     let vectors: &[(Request, &str)] = &[
         (Request::MatrixRoute { input: port(1), output: port(2) }, "MT00SW0102NT"),
         (Request::MatrixRouteAll(port(1)), "MT00SW0100NT"),
@@ -163,13 +164,13 @@ fn family_b_strings() {
     ];
 
     for (request, expected) in vectors {
-        assert_eq!(bytes(Matrix, *request), expected.as_bytes(), "{request}");
+        assert_eq!(bytes(MatrixTable, *request), expected.as_bytes(), "{request}");
     }
 }
 
 /// The matrix network commands, which are spelled differently per transport.
 #[test]
-fn family_b_network_strings() {
+fn matrix_network_strings() {
     let lan: &[(Request, &str)] = &[
         (Request::NetQuery(NetField::Ip), "IP?"),
         (Request::NetQuery(NetField::Port), "PT?"),
@@ -177,7 +178,7 @@ fn family_b_network_strings() {
         (Request::NetQuery(NetField::Mask), "MA?"),
     ];
     for (request, expected) in lan {
-        assert_eq!(bytes(Matrix, *request), expected.as_bytes(), "{request}");
+        assert_eq!(bytes(MatrixTable, *request), expected.as_bytes(), "{request}");
     }
 
     let serial_style = AsciiStyle::DEFAULT.with_scope(AsciiScope::Serial);
@@ -202,13 +203,13 @@ fn family_b_network_strings() {
         ),
     ];
     for (request, expected) in serial {
-        assert_eq!(styled(Matrix, *request, serial_style), expected.as_bytes(), "{request}");
+        assert_eq!(styled(MatrixTable, *request, serial_style), expected.as_bytes(), "{request}");
     }
 }
 
-/// Family C has four commands, and they are all four bytes long.
+/// The `sdi` protocol has four commands, and they are all four bytes long.
 #[test]
-fn family_c_frames() {
+fn sdi_frames() {
     let vectors: &[(Request, &[u8])] = &[
         (Request::Switch(port(1)), &[0xAA, 0xCC, 0x01, 0x01]),
         (Request::Switch(port(2)), &[0xAA, 0xCC, 0x01, 0x02]),
@@ -217,7 +218,7 @@ fn family_c_frames() {
     ];
 
     for (request, expected) in vectors {
-        assert_eq!(bytes(Sdi, *request), *expected, "{request}");
+        assert_eq!(bytes(SdiTable, *request), *expected, "{request}");
     }
 }
 
@@ -243,13 +244,13 @@ fn replies_from_the_documentation() {
         let Some(Chunk::Ascii(text)) = decoder.poll_chunk() else {
             panic!("{reply} did not decode")
         };
-        assert_eq!(Kvm.decode(&Chunk::Ascii(text)), Some(Response::Net(expected)));
+        assert_eq!(KvmTable.decode(&Chunk::Ascii(text)), Some(Response::Net(expected)));
     }
 
     // OK for a write
     decoder.feed(b"OK");
     let Some(Chunk::Ascii(text)) = decoder.poll_chunk() else { panic!("OK did not decode") };
-    assert_eq!(Kvm.decode(&Chunk::Ascii(text)), Some(Response::Ack));
+    assert_eq!(KvmTable.decode(&Chunk::Ascii(text)), Some(Response::Ack));
 }
 
 #[test]

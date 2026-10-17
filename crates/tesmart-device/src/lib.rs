@@ -44,13 +44,13 @@
 //! | Module | Content |
 //! | --- | --- |
 //! | this one | the device, its configuration, its state and the shared plumbing |
-//! | `kvm` | the hex frame handlers for families A and A' |
-//! | `matrix` | family B: the routing table, presets and the `LINK:` report |
+//! | `kvm` | the hex frame handlers for `kvm` and `kvm-dual` |
+//! | `matrix` | `matrix`: the routing table, presets and the `LINK:` report |
 //!
-//! The two family modules are private: they add behaviour to [`Device`] rather than API of
+//! The two protocol modules are private: they add behaviour to [`Device`] rather than API of
 //! their own, so the only public sign of them is [`Routing`].
 //!
-//! Family C (the SDI switch) is not implemented, because there is nothing to implement: it
+//! The `sdi` protocol is not implemented, because there is nothing to implement: it
 //! never sends a byte, so the only observable behaviour is the four bytes the controller
 //! writes, which [`tesmart_proto`]'s own tests already pin down.
 //!
@@ -67,7 +67,7 @@ use core::num::NonZeroU8;
 
 use tesmart_proto::model::{Capabilities, ModelInfo, Support};
 use tesmart_proto::port::{Port, PortCount};
-use tesmart_proto::profile::Family;
+use tesmart_proto::protocol::Protocol;
 use tesmart_proto::value::{
     Buzzer, DisplayTimeout, HotkeyTrigger, MatrixTimeout, NetConfig, NetSetting, Output, Preset,
     SwitchInterval, Toggle,
@@ -179,8 +179,8 @@ impl Default for Faults {
 /// What kind of switch to emulate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceConfig {
-    /// Which protocol family to speak.
-    pub family: Family,
+    /// Which protocol to speak.
+    pub protocol: Protocol,
     /// How many inputs to pretend to have.
     pub ports: PortCount,
     /// How many outputs to pretend to have. One, for anything that is not a matrix.
@@ -197,7 +197,7 @@ impl DeviceConfig {
     /// Emulates a registry entry, including its capability gaps.
     pub fn from_model(model: &ModelInfo) -> Self {
         Self {
-            family: model.family,
+            protocol: model.protocol,
             ports: model.ports,
             outputs: model.outputs,
             caps: model.caps,
@@ -392,12 +392,12 @@ impl Device {
 
     fn act(&mut self, action: Action) {
         match action {
-            Action::Frame(opcode, payload) => match self.config.family {
-                Family::Kvm => self.single_monitor_frame(opcode, payload),
-                Family::KvmDual => self.dual_monitor_frame(opcode, payload),
+            Action::Frame(opcode, payload) => match self.config.protocol {
+                Protocol::Kvm => self.single_monitor_frame(opcode, payload),
+                Protocol::KvmDual => self.dual_monitor_frame(opcode, payload),
                 // Matrices have no hex protocol at all, and the SDI switch's four-byte
                 // commands are not frames this decoder produces.
-                Family::Matrix | Family::Sdi => {}
+                Protocol::Matrix | Protocol::Sdi => {}
             },
             Action::Ascii(command) => self.ascii_command(command),
         }
@@ -406,7 +406,7 @@ impl Device {
     fn ascii_command(&mut self, command: ascii::AsciiCommand) {
         // The matrix commands are gated per capability, not by the network flag.
         if let ascii::AsciiCommand::Matrix(matrix) = command {
-            if self.config.family == Family::Matrix {
+            if self.config.protocol == Protocol::Matrix {
                 self.matrix_command(matrix);
             }
             return;
@@ -525,7 +525,7 @@ fn bump(addr: Ipv4Addr) -> Ipv4Addr {
     Ipv4Addr::new(a, b, c, d.wrapping_add(1))
 }
 
-/// Helpers the per-family test modules share.
+/// Helpers the per-protocol test modules share.
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::{Device, Faults};

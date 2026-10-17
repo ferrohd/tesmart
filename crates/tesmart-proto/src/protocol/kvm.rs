@@ -1,4 +1,4 @@
-//! Family A: single-monitor KVM switches.
+//! The `kvm` protocol: single-monitor KVM switches.
 //!
 //! Covers `HKS0801A*`, `HKS1601A*`, `HSW0801A*`, `HSW1601A*`, `HKE0802A10`, `DKS0401A30`,
 //! `HKS801/1601-EB23` and `HKS801/1601-P23`. Which of these commands a particular model
@@ -18,8 +18,8 @@
 //! packet captures for the ASCII side-channel.
 
 use crate::command::{CommandInfo, Request, RequestKind, Response};
-use crate::profile::base::{self, OPCODE_BUZZER, OPCODE_SWITCH};
-use crate::profile::{Family, Profile, Unsupported, sealed};
+use crate::protocol::base::{self, OPCODE_BUZZER, OPCODE_SWITCH};
+use crate::protocol::{CommandTable, Protocol, Unsupported, sealed};
 use crate::wire::{AsciiStyle, Chunk, Frame, Transmit, ascii};
 
 /// Set how long the front panel display stays lit.
@@ -34,15 +34,15 @@ pub const OPCODE_READ_PORT: u8 = 0x10;
 /// The reply to [`OPCODE_READ_PORT`], carrying a 0-based port.
 pub const OPCODE_PORT_REPORT: u8 = crate::wire::frame::OPCODE_PORT_REPORT;
 
-/// The Family A command table.
+/// The `kvm` command table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Kvm;
+pub struct KvmTable;
 
-impl sealed::Sealed for Kvm {}
+impl sealed::Sealed for KvmTable {}
 
-impl Profile for Kvm {
-    fn family(self) -> Family {
-        Family::Kvm
+impl CommandTable for KvmTable {
+    fn protocol(self) -> Protocol {
+        Protocol::Kvm
     }
 
     fn encode(self, request: Request, style: AsciiStyle) -> Result<Transmit, Unsupported> {
@@ -76,12 +76,12 @@ impl Profile for Kvm {
             | Request::MatrixDisplayTimeout(_)
             | Request::MatrixBuzzer(_)
             | Request::MatrixLoadPreset(_)
-            | Request::MatrixSavePreset(_) => Err(Unsupported::new(Family::Kvm, request.kind())),
+            | Request::MatrixSavePreset(_) => Err(Unsupported::new(Protocol::Kvm, request.kind())),
         }
     }
 
     fn decode(self, chunk: &Chunk<'_>) -> Option<Response> {
-        base::decode_hex_family(chunk)
+        base::decode_hex(chunk)
     }
 
     fn commands(self) -> &'static [CommandInfo] {
@@ -113,8 +113,9 @@ mod tests {
     use crate::value::{Buzzer, DisplayTimeout, NetField, NetSetting, Toggle};
 
     fn encode(request: Request) -> std::vec::Vec<u8> {
-        Kvm.encode(request, AsciiStyle::DEFAULT)
-            .expect("supported by family A")
+        KvmTable
+            .encode(request, AsciiStyle::DEFAULT)
+            .expect("supported by the kvm protocol")
             .bytes()
             .as_slice()
             .to_vec()
@@ -165,16 +166,16 @@ mod tests {
     #[test]
     fn decodes_port_reports_and_ascii_replies() {
         assert_eq!(
-            Kvm.decode(&Chunk::PortReport(Port::new(3).unwrap())),
+            KvmTable.decode(&Chunk::PortReport(Port::new(3).unwrap())),
             Some(Response::ActivePort(Port::new(3).unwrap()))
         );
-        assert_eq!(Kvm.decode(&Chunk::Ascii("OK")), Some(Response::Ack));
+        assert_eq!(KvmTable.decode(&Chunk::Ascii("OK")), Some(Response::Ack));
         assert_eq!(
-            Kvm.decode(&Chunk::Ascii("PT:05000")),
+            KvmTable.decode(&Chunk::Ascii("PT:05000")),
             Some(Response::Net(NetSetting::Port(5000)))
         );
-        assert_eq!(Kvm.decode(&Chunk::Ascii("garbage")), None);
-        assert_eq!(Kvm.decode(&Chunk::BadPortReport { raw: 0x40 }), None);
-        assert_eq!(Kvm.decode(&Chunk::Frame(Frame::one(0x42, 0x00))), None);
+        assert_eq!(KvmTable.decode(&Chunk::Ascii("garbage")), None);
+        assert_eq!(KvmTable.decode(&Chunk::BadPortReport { raw: 0x40 }), None);
+        assert_eq!(KvmTable.decode(&Chunk::Frame(Frame::one(0x42, 0x00))), None);
     }
 }

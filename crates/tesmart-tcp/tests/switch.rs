@@ -45,7 +45,7 @@ fn kvm(addr: SocketAddr) -> Kvm<TcpConnector> {
         // The real defaults space commands a second apart and wait another second before
         // reading a port back. Both are tested where they belong, in `tesmart-client`; these
         // tests are about the socket.
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .switch_defaults(SwitchOptions::default().settle(Duration::ZERO))
         .build()
         .expect("a KVM model")
@@ -117,7 +117,7 @@ async fn a_front_panel_press_is_seen_over_a_persistent_connection() {
     let (sim, addr, serving) = switch_on_localhost(Faults::NONE).await;
     let mut kvm = Kvm::builder(TcpConnector::from_addr(addr))
         .model(model::lookup("HKS1601-EB23").unwrap())
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .build()
         .unwrap();
@@ -201,7 +201,7 @@ async fn localhost_is_resolved_at_connect_time() {
 
     let mut kvm = Kvm::builder(connector)
         .model(model::lookup("HKS1601-EB23").unwrap())
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .build()
         .unwrap();
 

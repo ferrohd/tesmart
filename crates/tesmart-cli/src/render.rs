@@ -397,19 +397,19 @@ mod human {
         out: &mut impl Write,
         models: &[crate::report::ModelSummaryView],
     ) -> io::Result<()> {
-        writeln!(out, "{:<14} {:<9} {:>5}  {:<13} NET", "MODEL", "FAMILY", "PORTS", "READ-PORT")?;
+        writeln!(out, "{:<14} {:<9} {:>5}  {:<13} NET", "MODEL", "PROTOCOL", "PORTS", "READ-PORT")?;
         for model in models {
             writeln!(
                 out,
                 "{:<14} {:<9} {:>5}  {:<13} {}",
-                model.model, model.family, model.ports, model.read_port, model.net_config
+                model.model, model.protocol, model.ports, model.read_port, model.net_config
             )?;
         }
         Ok(())
     }
 
     fn model_detail(out: &mut impl Write, view: &crate::report::ModelDetailView) -> io::Result<()> {
-        writeln!(out, "{} ({}, {} ports)", view.model.bold(), view.family, view.ports)?;
+        writeln!(out, "{} ({}, {} ports)", view.model.bold(), view.protocol, view.ports)?;
         if !view.aliases.is_empty() {
             writeln!(out, "aliases: {}", view.aliases.join(", "))?;
         }

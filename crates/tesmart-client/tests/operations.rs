@@ -15,7 +15,7 @@ use tesmart_proto::engine::Policy;
 use tesmart_proto::value::{
     Buzzer, DisplayTimeout, HotkeyTrigger, Output, Step, SwitchInterval, Toggle,
 };
-use tesmart_proto::{Family, Port, PortCount, RequestKind, Support, model};
+use tesmart_proto::{Port, PortCount, Protocol, RequestKind, Support, model};
 use tesmart_sim::Faults;
 use tesmart_sim::{SimHandle, Simulator};
 
@@ -34,7 +34,7 @@ fn switch(key: &str, faults: Faults) -> (Kvm<tesmart_sim::InProcess>, SimHandle)
 
     let kvm = Kvm::builder(sim.connector())
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .switch_defaults(SwitchOptions::default().settle(Duration::ZERO))
         .build()
@@ -124,7 +124,7 @@ async fn an_override_makes_an_unverified_model_verifiable() {
         .model(info)
         // "I tested this on my unit."
         .assume(RequestKind::ReadActivePort, Support::FieldTested)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .switch_defaults(SwitchOptions::default().settle(Duration::ZERO))
         .build()
         .unwrap();
@@ -173,7 +173,7 @@ async fn a_dropped_read_back_is_retried_before_giving_up() {
     // the operation's read-back loop.
     let (mut kvm, _handle) =
         switch("HKS801-EB23", Faults { drop_every: NonZeroU8::new(2), ..Faults::NONE });
-    kvm.session_mut().set_protocol_policy(Policy::IMMEDIATE.with_max_retries(0));
+    kvm.session_mut().set_policy(Policy::IMMEDIATE.with_max_retries(0));
 
     // Burn the first reply so that the read-back inside `switch` is the one that goes missing.
     kvm.active_port().await.unwrap();
@@ -268,10 +268,10 @@ async fn the_port_count_can_be_probed_by_trying_every_input() {
     // An 8-port switch described, wrongly, as having 16.
     let sim = Simulator::from_model(model::lookup("HKS0801A30").unwrap());
     let mut kvm = Kvm::builder(sim.connector())
-        .family(Family::Kvm)
+        .protocol(Protocol::Kvm)
         .ports(PortCount::new(16).unwrap())
         .assume(RequestKind::ReadActivePort, Support::Documented)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .switch_defaults(SwitchOptions::default().settle(Duration::ZERO))
         .build()
@@ -335,7 +335,7 @@ async fn dual_monitor_commands_work_on_a_dual_monitor_switch() {
 
     let mut kvm = Kvm::builder(sim.connector())
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .build()
         .unwrap();
@@ -361,7 +361,7 @@ async fn dual_monitor_commands_work_on_a_dual_monitor_switch() {
         })
         .await;
 
-    // None of it can be confirmed: the dual-monitor family has no read command at all.
+    // None of it can be confirmed: the dual-monitor protocol has no read command at all.
     for kind in [
         RequestKind::KmPassthrough,
         RequestKind::HotkeyTrigger,
@@ -392,17 +392,14 @@ async fn dual_monitor_settings_are_refused_on_a_single_monitor_switch() {
 async fn single_monitor_commands_are_refused_on_a_dual_monitor_switch() {
     let info = model::lookup("dual-4port").unwrap();
     let sim = Simulator::from_model(info);
-    let mut kvm = Kvm::builder(sim.connector())
-        .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
-        .build()
-        .unwrap();
+    let mut kvm =
+        Kvm::builder(sim.connector()).model(info).policy(Policy::IMMEDIATE).build().unwrap();
 
     // 0x03 steps output A here, so a display timeout is a different command entirely.
     let error = kvm.set_display_timeout(DisplayTimeout::Never).await.unwrap_err();
     assert_eq!(error.class(), ErrorClass::Unsupported);
 
-    // And switching cannot be verified, because the family has no read command.
+    // And switching cannot be verified, because the protocol has no read command.
     let outcome = kvm.switch(port(2)).await.unwrap();
     assert!(matches!(
         outcome,
@@ -424,18 +421,18 @@ async fn dual_monitor_commands_are_refused_on_a_single_monitor_switch() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_unknown_switch_can_be_driven_by_family_and_port_count() {
+async fn an_unknown_switch_can_be_driven_by_protocol_and_port_count() {
     let sim = Simulator::custom(
-        Family::Kvm,
+        Protocol::Kvm,
         PortCount::new(8).unwrap(),
         tesmart_proto::Capabilities::UNVERIFIED,
     );
     sim.handle().set_faults(Faults::NONE);
 
     let mut kvm = Kvm::builder(sim.connector())
-        .family(Family::Kvm)
+        .protocol(Protocol::Kvm)
         .ports(PortCount::new(8).unwrap())
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .build()
         .unwrap();
 
@@ -449,31 +446,31 @@ async fn an_unknown_switch_can_be_driven_by_family_and_port_count() {
 }
 
 #[test]
-fn the_family_is_never_guessed() {
+fn the_protocol_is_never_guessed() {
     let sim = Simulator::from_model(model::lookup("HKS801-EB23").unwrap());
 
-    // No model and no family: refused, rather than defaulting to the single-monitor table.
+    // No model and no protocol: refused, rather than defaulting to the single-monitor table.
     assert_eq!(
         Kvm::builder(sim.connector()).ports(PortCount::new(8).unwrap()).build().err(),
-        Some(BuildError::NoFamily)
+        Some(BuildError::NoProtocol)
     );
 
-    // A family but no port count is equally unusable.
+    // A protocol but no port count is equally unusable.
     assert_eq!(
-        Kvm::builder(sim.connector()).family(Family::Kvm).build().err(),
+        Kvm::builder(sim.connector()).protocol(Protocol::Kvm).build().err(),
         Some(BuildError::NoPortCount)
     );
 
     // And a matrix is not a KVM.
     assert_eq!(
         Kvm::from_model(sim.connector(), model::lookup("HMA0404B30").unwrap()).err(),
-        Some(BuildError::WrongFamily { expected: "a KVM switch", actual: Family::Matrix })
+        Some(BuildError::WrongProtocol { expected: "a KVM switch", actual: Protocol::Matrix })
     );
 
     // Nor the other way round: a KVM is not a matrix.
     assert_eq!(
         tesmart_client::Matrix::from_model(sim.connector(), model::lookup("HKS801-EB23").unwrap())
             .err(),
-        Some(BuildError::WrongFamily { expected: "an HDMI matrix", actual: Family::Kvm })
+        Some(BuildError::WrongProtocol { expected: "an HDMI matrix", actual: Protocol::Kvm })
     );
 }

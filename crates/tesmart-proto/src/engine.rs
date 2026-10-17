@@ -43,7 +43,7 @@ use core::time::Duration;
 use crate::buf::Ring;
 use crate::command::{Request, RequestKind, Response, ResponseKind};
 use crate::port::Port;
-use crate::profile::{Profile, Unsupported};
+use crate::protocol::{CommandTable, Unsupported};
 use crate::time::Timestamp;
 use crate::wire::frame::OPCODE_PORT_REPORT;
 use crate::wire::{
@@ -155,7 +155,7 @@ impl Policy {
         self
     }
 
-    /// The dialect and scope together, as the profiles take them.
+    /// The dialect and scope together, as the command tables take them.
     pub const fn ascii_style(self) -> AsciiStyle {
         AsciiStyle { dialect: self.ascii_dialect, scope: self.ascii_scope }
     }
@@ -197,7 +197,7 @@ pub enum Event {
         kind: ResponseKind,
     },
 
-    /// A well-formed frame arrived that no profile interprets.
+    /// A well-formed frame arrived that no command table interprets.
     UnexpectedFrame {
         /// Its opcode.
         opcode: u8,
@@ -236,7 +236,7 @@ pub enum ExchangeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum SubmitError {
-    /// The active profile has no such command.
+    /// The active protocol has no such command.
     #[error(transparent)]
     Unsupported(#[from] Unsupported),
 
@@ -315,8 +315,8 @@ enum Incoming {
 
 /// The protocol engine: bytes in, events out, no IO.
 #[derive(Debug)]
-pub struct Engine<P: Profile, T: Timestamp> {
-    profile: P,
+pub struct Engine<P: CommandTable, T: Timestamp> {
+    table: P,
     policy: Policy,
     decoder: StreamDecoder,
     events: Ring<Event, EVENT_CAPACITY>,
@@ -327,16 +327,16 @@ pub struct Engine<P: Profile, T: Timestamp> {
     last_port_report: Option<(Port, T)>,
 }
 
-impl<P: Profile, T: Timestamp> Engine<P, T> {
-    /// An engine for `profile`, with the default [`Policy`].
-    pub fn new(profile: P) -> Self {
-        Self::with_policy(profile, Policy::DEFAULT)
+impl<P: CommandTable, T: Timestamp> Engine<P, T> {
+    /// An engine for `table`, with the default [`Policy`].
+    pub fn new(table: P) -> Self {
+        Self::with_policy(table, Policy::DEFAULT)
     }
 
-    /// An engine for `profile` with an explicit policy.
-    pub fn with_policy(profile: P, policy: Policy) -> Self {
+    /// An engine for `table` with an explicit policy.
+    pub fn with_policy(table: P, policy: Policy) -> Self {
         Self {
-            profile,
+            table,
             policy,
             decoder: StreamDecoder::new(),
             events: Ring::new(),
@@ -348,9 +348,9 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
         }
     }
 
-    /// The profile in use.
-    pub fn profile(&self) -> P {
-        self.profile
+    /// The command table in use.
+    pub fn table(&self) -> P {
+        self.table
     }
 
     /// The policy in use.
@@ -365,19 +365,19 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
 
     /// Queues a request.
     ///
-    /// Validation against the profile happens here, before any byte is produced: a command that
-    /// does not exist in this family can never reach the switch.
+    /// Validation against the command table happens here, before any byte is produced: a
+    /// command that does not exist in this protocol can never reach the switch.
     ///
     /// # Errors
     ///
-    /// [`SubmitError::Unsupported`] if the family has no such command, or
+    /// [`SubmitError::Unsupported`] if the protocol has no such command, or
     /// [`SubmitError::Busy`] if an exchange is already in flight.
     pub fn submit(&mut self, request: Request, now: T) -> Result<ExchangeId, SubmitError> {
         if let Some(pending) = self.pending() {
             return Err(SubmitError::Busy { pending });
         }
 
-        let transmit = self.profile.encode(request, self.policy.ascii_style())?;
+        let transmit = self.table.encode(request, self.policy.ascii_style())?;
         let kind = request.kind();
         let expectation = match kind.expects() {
             Some(response) => Expectation::Kind(response),
@@ -400,7 +400,7 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
         ))
     }
 
-    /// Queues raw bytes, bypassing the profile tables.
+    /// Queues raw bytes, bypassing the command tables.
     ///
     /// The escape hatch for probing undocumented models. With `expect_reply` the exchange
     /// completes on whatever comes back first, as [`Response::Frame`] or [`Response::Text`];
@@ -503,9 +503,9 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
         }
 
         // A reply with no terminator is still a reply. `OK` has been seen arriving bare.
-        let profile = self.profile;
+        let table = self.table;
         let recovered =
-            self.decoder.flush_ascii().and_then(|text| profile.decode(&Chunk::Ascii(text)));
+            self.decoder.flush_ascii().and_then(|text| table.decode(&Chunk::Ascii(text)));
         if let Some(response) = recovered {
             self.deliver(response, now);
             if !matches!(self.state, State::Awaiting { .. }) {
@@ -597,10 +597,10 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
 
     fn drain(&mut self, now: T) {
         loop {
-            let profile = self.profile;
+            let table = self.table;
             let incoming = match self.decoder.poll_chunk() {
                 None => break,
-                Some(chunk) => classify(profile, &chunk),
+                Some(chunk) => classify(table, &chunk),
             };
             self.apply(incoming, now);
         }
@@ -692,14 +692,14 @@ impl<P: Profile, T: Timestamp> Engine<P, T> {
     }
 }
 
-fn classify<P: Profile>(profile: P, chunk: &Chunk<'_>) -> Incoming {
-    if let Some(response) = profile.decode(chunk) {
+fn classify<P: CommandTable>(table: P, chunk: &Chunk<'_>) -> Incoming {
+    if let Some(response) = table.decode(chunk) {
         return Incoming::Decoded(response);
     }
     match chunk {
         Chunk::Frame(frame) => Incoming::Frame(*frame),
-        // Only reachable when the active profile ignores port reports, i.e. a matrix answering
-        // with a KVM frame: the wrong family was selected.
+        // Only reachable when the active protocol ignores port reports, i.e. a matrix answering
+        // with a KVM frame: the wrong protocol was selected.
         Chunk::PortReport(port) => {
             Incoming::Frame(Frame::one(OPCODE_PORT_REPORT, port.to_read_byte()))
         }

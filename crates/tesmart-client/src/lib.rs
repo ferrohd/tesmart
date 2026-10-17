@@ -36,7 +36,7 @@
 //! # Matrices are the exception
 //!
 //! A matrix can report its whole routing table, so [`Matrix::route`] is the only *write* in any
-//! TESmart family whose effect can be confirmed. Everything a KVM can set is write-only.
+//! TESmart protocol whose effect can be confirmed. Everything a KVM can set is write-only.
 //!
 //! # Example
 //!
@@ -52,7 +52,7 @@
 //!
 //! let mut kvm = Kvm::builder(sim.connector())
 //!     .model(model)
-//!     .protocol_policy(Policy::IMMEDIATE)           // no 1 s command spacing in an example
+//!     .policy(Policy::IMMEDIATE)           // no 1 s command spacing in an example
 //!     .build()
 //!     .unwrap();
 //!

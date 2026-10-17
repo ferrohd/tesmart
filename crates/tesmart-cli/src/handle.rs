@@ -3,7 +3,7 @@
 use tesmart::client::{ConnectionPolicy, Connector, Kvm, Matrix};
 use tesmart::proto::engine::Policy;
 use tesmart::proto::model::{self, ModelInfo};
-use tesmart::proto::{Family, PortCount, RequestKind, Support};
+use tesmart::proto::{PortCount, Protocol, RequestKind, Support};
 
 use crate::cli::Global;
 use crate::error::CliError;
@@ -13,35 +13,34 @@ use crate::error::CliError;
 /// # Errors
 ///
 /// [`CliError::Usage`] if the model is unknown, the capability overrides do not parse, or
-/// neither a model nor a family and port count were given.
+/// neither a model nor a protocol and port count were given.
 pub fn build<C: Connector>(
     connector: C,
     global: &Global,
-    family_default: Option<Family>,
+    protocol_default: Option<Protocol>,
 ) -> Result<Kvm<C>, CliError> {
     let model = resolve_model(global)?;
 
-    let mut builder = Kvm::builder(connector)
-        .protocol_policy(protocol_policy(global))
-        .operation_timeout(global.timeout);
+    let mut builder =
+        Kvm::builder(connector).policy(policy_for(global)).operation_timeout(global.timeout);
 
     if let Some(model) = model {
         builder = builder.model(model);
     }
-    if let Some(family) = global.family {
-        builder = builder.family(family.into());
+    if let Some(protocol) = global.protocol {
+        builder = builder.protocol(protocol.into());
     } else if model.is_none()
-        && let Some(family) = family_default
+        && let Some(protocol) = protocol_default
     {
         // `raw` is the one command that does not need the tables: the bytes are the caller's,
-        // and the family only decides how a reply is interpreted.
-        builder = builder.family(family);
+        // and the protocol only decides how a reply is interpreted.
+        builder = builder.protocol(protocol);
     }
     if let Some(ports) = global.ports {
         let ports = PortCount::new(ports)
             .map_err(|error| CliError::usage(format!("--ports {ports}: {error}")))?;
         builder = builder.ports(ports);
-    } else if model.is_none() && family_default.is_some() {
+    } else if model.is_none() && protocol_default.is_some() {
         builder = builder.ports(
             PortCount::new(tesmart::proto::Port::MAX)
                 .unwrap_or_else(|_| unreachable!("16 is a valid port count")),
@@ -68,9 +67,8 @@ pub fn build<C: Connector>(
 pub fn build_matrix<C: Connector>(connector: C, global: &Global) -> Result<Matrix<C>, CliError> {
     let model = resolve_model(global)?;
 
-    let mut builder = Matrix::builder(connector)
-        .protocol_policy(protocol_policy(global))
-        .operation_timeout(global.timeout);
+    let mut builder =
+        Matrix::builder(connector).policy(policy_for(global)).operation_timeout(global.timeout);
 
     if let Some(model) = model {
         builder = builder.model(model);
@@ -97,7 +95,7 @@ pub fn build_matrix<C: Connector>(connector: C, global: &Global) -> Result<Matri
 
 fn build_error(error: tesmart::client::BuildError) -> CliError {
     match error {
-        tesmart::client::BuildError::NoFamily | tesmart::client::BuildError::NoPortCount => {
+        tesmart::client::BuildError::NoProtocol | tesmart::client::BuildError::NoPortCount => {
             CliError::usage(NO_MODEL)
         }
         other => CliError::from(other),
@@ -108,9 +106,9 @@ const NO_MODEL: &str = "\
 no model given
 
   pass -m <MODEL> to use the built-in registry (see `tesmart models list`)
-  or  -f kvm --ports 8 for a switch that is not in it
+  or  -p kvm --ports 8 for a switch that is not in it
 
-The same opcode means different things in different families: 0x03 sets the front display
+The same opcode means different things in different protocols: 0x03 sets the front display
 timeout on a single-monitor switch and steps output A's input on a dual-monitor one. That is
 why this is never guessed.";
 
@@ -124,16 +122,16 @@ Matrices are assumed square, as every published TESmart model is.";
 
 /// Whether the switch described by the global options is an HDMI matrix.
 ///
-/// Used to send the commands both families share, such as `net`, to the right handle.
+/// Used to send the commands both protocols share, such as `net`, to the right handle.
 ///
 /// # Errors
 ///
 /// [`CliError::Usage`] if `--model` names something not in the registry.
 pub fn is_matrix(global: &Global) -> Result<bool, CliError> {
-    if let Some(family) = global.family {
-        return Ok(Family::from(family) == Family::Matrix);
+    if let Some(protocol) = global.protocol {
+        return Ok(Protocol::from(protocol) == Protocol::Matrix);
     }
-    Ok(resolve_model(global)?.is_some_and(|model| model.family == Family::Matrix))
+    Ok(resolve_model(global)?.is_some_and(|model| model.protocol == Protocol::Matrix))
 }
 
 /// Looks up `--model`, if one was given.
@@ -144,13 +142,13 @@ fn resolve_model(global: &Global) -> Result<Option<&'static ModelInfo>, CliError
 
     model::lookup(name).map(Some).ok_or_else(|| {
         CliError::usage(format!(
-            "unknown model {name:?}; see `tesmart models list`, or use -f and --ports"
+            "unknown model {name:?}; see `tesmart models list`, or use -p and --ports"
         ))
     })
 }
 
 /// The protocol timings, from the tuning flags.
-fn protocol_policy(global: &Global) -> Policy {
+fn policy_for(global: &Global) -> Policy {
     Policy::DEFAULT
         .with_min_command_interval(global.rate_limit)
         .with_max_retries(global.retries)

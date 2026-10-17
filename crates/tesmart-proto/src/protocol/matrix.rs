@@ -1,4 +1,4 @@
-//! Family B: HDMI matrices.
+//! The `matrix` protocol: HDMI matrices.
 //!
 //! Matrices answer on the same default address as KVMs (192.168.1.10:5000, 9600 8N1) but share
 //! none of their commands, so a KVM tool pointed at a matrix connects and does nothing useful.
@@ -14,7 +14,7 @@
 //! | `MT00BZEN01NT` | mute the buzzer; `00NT` unmutes |
 //! | `MT00CTXXXXNT` | display timeout, `0000`-`9999` seconds |
 //!
-//! # One family, four command sets
+//! # One protocol, four command sets
 //!
 //! The table above is the union. No matrix implements all of it, and the gaps do not nest:
 //!
@@ -26,8 +26,8 @@
 //! | 16x16 | yes | no | **yes** | **yes** | yes |
 //!
 //! So `MT00CT` and the preset/buzzer commands are mutually exclusive in practice, and which
-//! ones a given unit has is a property of the model, not of this family: see
-//! [`Capabilities`](crate::Capabilities). This profile encodes the union and lets the registry
+//! ones a given unit has is a property of the model, not of this protocol: see
+//! [`Capabilities`](crate::Capabilities). This table encodes the union and lets the registry
 //! refuse what a model lacks.
 //!
 //! # Two transports, two spellings
@@ -39,19 +39,19 @@
 //! Sources: TESmart's 4x4 (RS232), 4x4 (RS232+IP), 8x8 and 16x16 matrix protocol documents.
 
 use crate::command::{CommandInfo, Request, RequestKind, Response};
-use crate::profile::{Family, Profile, Unsupported, base, sealed};
+use crate::protocol::{CommandTable, Protocol, Unsupported, base, sealed};
 use crate::wire::text::render;
 use crate::wire::{AsciiScope, AsciiStyle, Chunk, Transmit, TransmitKind, ascii};
 
 /// The matrix command table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Matrix;
+pub struct MatrixTable;
 
-impl sealed::Sealed for Matrix {}
+impl sealed::Sealed for MatrixTable {}
 
-impl Profile for Matrix {
-    fn family(self) -> Family {
-        Family::Matrix
+impl CommandTable for MatrixTable {
+    fn protocol(self) -> Protocol {
+        Protocol::Matrix
     }
 
     fn encode(self, request: Request, style: AsciiStyle) -> Result<Transmit, Unsupported> {
@@ -78,7 +78,7 @@ impl Profile for Matrix {
                 Ok(command(format_args!("MT00SV00{:02}NT", preset.get())))
             }
 
-            // The one family where the network side-channel is documented, and the one family
+            // The one protocol where the network side-channel is documented, and the one protocol
             // where the spelling depends on how you are connected.
             Request::NetQuery(field) => Ok(match style.scope {
                 AsciiScope::Lan => ascii::encode_query(field, style.dialect),
@@ -100,7 +100,7 @@ impl Profile for Matrix {
             | Request::HotkeyTrigger(_)
             | Request::AutoSwitch(_)
             | Request::AutoSwitchInterval(_) => {
-                Err(Unsupported::new(Family::Matrix, request.kind()))
+                Err(Unsupported::new(Protocol::Matrix, request.kind()))
             }
         }
     }
@@ -108,7 +108,7 @@ impl Profile for Matrix {
     fn decode(self, chunk: &Chunk<'_>) -> Option<Response> {
         match chunk {
             Chunk::Ascii(text) => base::decode_ascii(text),
-            // A matrix has no hex protocol at all, so a frame here means the wrong family was
+            // A matrix has no hex protocol at all, so a frame here means the wrong protocol was
             // selected, or the wrong device answered.
             Chunk::PortReport(_)
             | Chunk::BadPortReport { .. }
@@ -153,9 +153,9 @@ mod tests {
     use crate::value::{Buzzer, MatrixTimeout, NetField, NetSetting, Preset};
 
     fn encode_with(request: Request, style: AsciiStyle) -> std::string::String {
-        Matrix
+        MatrixTable
             .encode(request, style)
-            .expect("supported by family B")
+            .expect("supported by the matrix protocol")
             .bytes()
             .as_str()
             .expect("ASCII")
@@ -240,10 +240,11 @@ mod tests {
 
     #[test]
     fn decodes_routing_reports_only_from_ascii() {
-        let Some(Response::Routing(routing)) = Matrix.decode(&Chunk::Ascii("LINK:O1I2;END")) else {
+        let Some(Response::Routing(routing)) = MatrixTable.decode(&Chunk::Ascii("LINK:O1I2;END"))
+        else {
             panic!("expected a routing report")
         };
         assert_eq!(routing.entries().len(), 1);
-        assert_eq!(Matrix.decode(&Chunk::PortReport(Port::FIRST)), None);
+        assert_eq!(MatrixTable.decode(&Chunk::PortReport(Port::FIRST)), None);
     }
 }

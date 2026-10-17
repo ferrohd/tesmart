@@ -402,7 +402,7 @@ mod tests {
         let connector = resolved("sim://HKS1601-EB23");
         let info = model::lookup("HKS1601-EB23").expect("a known model");
         let mut kvm = Kvm::from_model(connector, info).expect("a KVM");
-        kvm.session_mut().set_protocol_policy(Policy::IMMEDIATE);
+        kvm.session_mut().set_policy(Policy::IMMEDIATE);
 
         let outcome = kvm.switch(Port::new(7).unwrap()).await.unwrap();
         assert!(outcome.is_confirmed(), "{outcome}");

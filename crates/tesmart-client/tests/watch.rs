@@ -17,11 +17,7 @@ fn eb23() -> (Kvm<tesmart_sim::InProcess>, SimHandle) {
     let sim = Simulator::from_model(info);
     sim.handle().set_faults(Faults::NONE);
 
-    let kvm = Kvm::builder(sim.connector())
-        .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
-        .build()
-        .unwrap();
+    let kvm = Kvm::builder(sim.connector()).model(info).policy(Policy::IMMEDIATE).build().unwrap();
 
     (kvm, sim.handle())
 }
@@ -120,11 +116,8 @@ async fn polling_is_disabled_on_a_switch_that_cannot_be_read() {
     let info = model::lookup("DKS0401A30").unwrap();
     let sim = Simulator::from_model(info);
     sim.handle().set_faults(Faults::NONE);
-    let mut kvm = Kvm::builder(sim.connector())
-        .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
-        .build()
-        .unwrap();
+    let mut kvm =
+        Kvm::builder(sim.connector()).model(info).policy(Policy::IMMEDIATE).build().unwrap();
 
     let watch = kvm.watch(WatchOptions::default());
 
@@ -142,11 +135,8 @@ async fn polling_is_attempted_on_an_unverified_model() {
     let sim = Simulator::from_model(info);
     sim.handle().set_faults(Faults::NONE);
     let handle = sim.handle();
-    let mut kvm = Kvm::builder(sim.connector())
-        .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
-        .build()
-        .unwrap();
+    let mut kvm =
+        Kvm::builder(sim.connector()).model(info).policy(Policy::IMMEDIATE).build().unwrap();
 
     assert_eq!(kvm.spec().support(RequestKind::ReadActivePort), Support::Unverified);
 

@@ -7,7 +7,7 @@ use tesmart::client::{
     Confirmed, Connector, ErrorClass, Kvm, OpError, SwitchOptions, Verify, WatchOptions,
 };
 use tesmart::proto::value::{MatrixTimeout, NetSetting, Preset, SwitchInterval};
-use tesmart::proto::{Family, Port, RequestKind, Support, model};
+use tesmart::proto::{Port, Protocol, RequestKind, Support, model};
 
 use crate::cli::{
     Cli, Command, DualCommand, MatrixCommand, ModelsCommand, NetCommand, NetSetArgs, PresetCommand,
@@ -70,7 +70,7 @@ async fn with_transport<C: Connector>(
         return matrix(connector, cli, command).await;
     }
 
-    // The ASCII network channel is the one thing both families have, and TESmart documents it
+    // The ASCII network channel is the one thing both protocols have, and TESmart documents it
     // for matrices over both transports, so `net` works against either handle.
     if let Command::Net(command) = &cli.command
         && handle::is_matrix(&cli.global)?
@@ -80,9 +80,9 @@ async fn with_transport<C: Connector>(
     }
 
     // `raw` is the one command that does not consult the opcode tables, so it is also the one
-    // that does not need a model: the family only decides how a reply is read back.
-    let family_default = matches!(cli.command, Command::Raw(_)).then_some(Family::Kvm);
-    let mut kvm = handle::build(connector, &cli.global, family_default)?;
+    // that does not need a model: the protocol only decides how a reply is read back.
+    let protocol_default = matches!(cli.command, Command::Raw(_)).then_some(Protocol::Kvm);
+    let mut kvm = handle::build(connector, &cli.global, protocol_default)?;
 
     match &cli.command {
         Command::Switch(args) => switch(&mut kvm, args).await,
@@ -164,7 +164,7 @@ async fn switch<C: Connector>(kvm: &mut Kvm<C>, args: &SwitchArgs) -> Result<Rep
     Ok(Report::Switch(SwitchView::from(outcome)))
 }
 
-/// `next` and `prev`, which mean different things per family.
+/// `next` and `prev`, which mean different things per protocol.
 ///
 /// On a single-monitor switch there is no relative command, so this reads the active port and
 /// switches to its neighbour, wrapping, and the result can be confirmed. On a dual-monitor
@@ -174,7 +174,7 @@ async fn step<C: Connector>(
     direction: StepArg,
     monitor: crate::cli::OutputArg,
 ) -> Result<Report, CliError> {
-    if kvm.family() == Family::KvmDual {
+    if kvm.protocol() == Protocol::KvmDual {
         return Ok(sent(kvm.step(monitor.into(), direction.into()).await?));
     }
 
@@ -254,7 +254,7 @@ async fn matrix<C: Connector>(
 /// The network side-channel, which both KVMs and matrices have.
 ///
 /// Written against [`NetOps`] rather than a concrete handle, because this is the one place the
-/// two families overlap.
+/// two protocols overlap.
 async fn net<D: NetOps>(
     device: &mut D,
     command: &NetCommand,
@@ -267,7 +267,7 @@ async fn net<D: NetOps>(
     }
 }
 
-/// Reading and writing network settings, whichever family is attached.
+/// Reading and writing network settings, whichever protocol is attached.
 trait NetOps {
     /// Reads all four settings.
     async fn read_net(&mut self) -> Result<tesmart::client::NetReport, OpError>;

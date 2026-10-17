@@ -8,18 +8,18 @@ use core::time::Duration;
 
 use tesmart_proto::command::ResponseKind;
 use tesmart_proto::engine::{Event, ExchangeError, Policy, SubmitError};
-use tesmart_proto::profile::{Kvm, KvmDual};
+use tesmart_proto::protocol::{KvmDualTable, KvmTable};
 use tesmart_proto::time::Tick;
 use tesmart_proto::value::{Buzzer, DisplayTimeout, NetField, NetSetting};
 use tesmart_proto::{Engine, Port, Request, Response};
 
 const SECOND: Duration = Duration::from_secs(1);
 
-fn kvm() -> Engine<Kvm, Tick> {
-    Engine::new(Kvm)
+fn kvm() -> Engine<KvmTable, Tick> {
+    Engine::new(KvmTable)
 }
 
-fn events<P: tesmart_proto::Profile>(engine: &mut Engine<P, Tick>) -> Vec<Event> {
+fn events<P: tesmart_proto::CommandTable>(engine: &mut Engine<P, Tick>) -> Vec<Event> {
     let mut out = Vec::new();
     while let Some(event) = engine.poll_event() {
         out.push(event);
@@ -104,7 +104,7 @@ fn the_engine_refuses_to_multiplex() {
 
 #[test]
 fn unsupported_commands_never_reach_the_wire() {
-    let mut engine: Engine<KvmDual, Tick> = Engine::new(KvmDual);
+    let mut engine: Engine<KvmDualTable, Tick> = Engine::new(KvmDualTable);
     let error = engine
         .submit(Request::DisplayTimeout(DisplayTimeout::Never), Tick::ZERO)
         .expect_err("0x03 means something else on dual-monitor switches");
@@ -117,7 +117,7 @@ fn unsupported_commands_never_reach_the_wire() {
 #[test]
 fn queries_are_retried_then_fail_loudly() {
     let policy = Policy::DEFAULT.with_max_retries(2);
-    let mut engine = Engine::with_policy(Kvm, policy);
+    let mut engine = Engine::with_policy(KvmTable, policy);
     let mut now = Tick::ZERO;
 
     let id = engine.submit(Request::ReadActivePort, now).unwrap();
@@ -201,7 +201,7 @@ fn a_report_arriving_mid_read_still_answers_the_read() {
 
 #[test]
 fn the_late_reply_to_a_retried_read_is_not_a_port_change() {
-    let mut engine = Engine::with_policy(Kvm, Policy::DEFAULT.with_max_retries(1));
+    let mut engine = Engine::with_policy(KvmTable, Policy::DEFAULT.with_max_retries(1));
     let mut now = Tick::ZERO;
 
     let id = engine.submit(Request::ReadActivePort, now).unwrap();
@@ -232,7 +232,7 @@ fn the_late_reply_to_a_retried_read_is_not_a_port_change() {
 
 #[test]
 fn garbage_read_replies_are_reported_and_retried() {
-    let mut engine = Engine::with_policy(Kvm, Policy::DEFAULT.with_max_retries(1));
+    let mut engine = Engine::with_policy(KvmTable, Policy::DEFAULT.with_max_retries(1));
     let now = Tick::ZERO;
 
     engine.submit(Request::ReadActivePort, now).unwrap();
@@ -394,7 +394,7 @@ fn reset_abandons_the_exchange_but_keeps_the_command_gap() {
 
 #[test]
 fn events_are_dropped_oldest_first_and_counted() {
-    let mut engine = Engine::with_policy(Kvm, Policy::IMMEDIATE);
+    let mut engine = Engine::with_policy(KvmTable, Policy::IMMEDIATE);
     let mut now = Tick::ZERO;
 
     // more unsolicited reports than the event queue holds, alternating so none is a duplicate
@@ -412,7 +412,7 @@ fn events_are_dropped_oldest_first_and_counted() {
 }
 
 #[test]
-fn settings_are_fire_and_forget_for_every_hex_family() {
+fn settings_are_fire_and_forget_for_every_hex_protocol() {
     for request in
         [Request::Buzzer(Buzzer::Muted), Request::DisplayTimeout(DisplayTimeout::Seconds30)]
     {

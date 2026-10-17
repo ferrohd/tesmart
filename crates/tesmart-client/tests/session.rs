@@ -13,7 +13,7 @@ use tesmart_client::{
     ClientError, ConnectionPolicy, Connector, Session, TransportError, TransportKind,
 };
 use tesmart_proto::engine::{Event, Policy};
-use tesmart_proto::profile::Kvm;
+use tesmart_proto::protocol::KvmTable;
 use tesmart_proto::value::{Buzzer, NetField, NetSetting};
 use tesmart_proto::{Port, Request, Response, model};
 use tesmart_sim::Faults;
@@ -25,11 +25,11 @@ fn port(n: u8) -> Port {
     Port::new(n).unwrap()
 }
 
-/// A session against an 8-port EB23, which can do everything the family documents.
-fn eb23(faults: Faults) -> (Session<tesmart_sim::InProcess, Kvm>, SimHandle) {
+/// A session against an 8-port EB23, which can do everything the protocol documents.
+fn eb23(faults: Faults) -> (Session<tesmart_sim::InProcess, KvmTable>, SimHandle) {
     let sim = Simulator::from_model(model::lookup("HKS801-EB23").unwrap());
     sim.handle().set_faults(faults);
-    let session = Session::new(sim.connector(), Kvm);
+    let session = Session::new(sim.connector(), KvmTable);
     let handle = sim.handle();
     (session, handle)
 }
@@ -222,9 +222,9 @@ async fn next_event_delivers_what_the_switch_volunteers() {
 async fn an_unsupported_command_never_reaches_the_wire() {
     let sim = Simulator::from_model(model::lookup("dual-4port").unwrap());
     let handle = sim.handle();
-    let mut session = Session::new(sim.connector(), tesmart_proto::profile::KvmDual);
+    let mut session = Session::new(sim.connector(), tesmart_proto::protocol::KvmDualTable);
 
-    // 0x03 steps output A on this family; asking for a display timeout is a different command.
+    // 0x03 steps output A on this protocol; asking for a display timeout is a different command.
     let error = session
         .exchange(Request::DisplayTimeout(tesmart_proto::value::DisplayTimeout::Never))
         .await
@@ -280,7 +280,7 @@ async fn the_command_gap_counts_against_the_operation_budget() {
 async fn a_closed_connection_is_reported_loudly() {
     let connector = ClosingConnector::default();
     let attempts = Arc::clone(&connector.connects);
-    let mut session = Session::with_policy(connector, Kvm, Policy::IMMEDIATE);
+    let mut session = Session::with_policy(connector, KvmTable, Policy::IMMEDIATE);
 
     let error = session.exchange(Request::ReadActivePort).await.unwrap_err();
 
@@ -290,7 +290,7 @@ async fn a_closed_connection_is_reported_loudly() {
 
 #[tokio::test(start_paused = true)]
 async fn a_connector_that_cannot_connect_names_its_target() {
-    let mut session = Session::new(RefusingConnector, Kvm);
+    let mut session = Session::new(RefusingConnector, KvmTable);
 
     let error = session.exchange(Request::ReadActivePort).await.unwrap_err();
 
@@ -305,8 +305,11 @@ async fn a_transport_can_ask_for_a_persistent_session() {
     let handle = sim.handle();
 
     // A connector that knows its connections are expensive, as a serial line does.
-    let mut session =
-        Session::with_policy(ExpensiveConnector { inner: sim.connector() }, Kvm, Policy::IMMEDIATE);
+    let mut session = Session::with_policy(
+        ExpensiveConnector { inner: sim.connector() },
+        KvmTable,
+        Policy::IMMEDIATE,
+    );
     assert_eq!(session.connection_policy(), ConnectionPolicy::Persistent);
 
     for human in 1..=3 {
@@ -336,7 +339,7 @@ async fn the_operations_builder_honours_and_overrides_the_preference() {
 
     let kvm = KvmOps::builder(ExpensiveConnector { inner: sim.connector() })
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .build()
         .unwrap();
     assert_eq!(
@@ -347,7 +350,7 @@ async fn the_operations_builder_honours_and_overrides_the_preference() {
 
     let kvm = KvmOps::builder(ExpensiveConnector { inner: sim.connector() })
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::PerCommand)
         .build()
         .unwrap();

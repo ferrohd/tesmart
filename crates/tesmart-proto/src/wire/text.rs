@@ -14,7 +14,7 @@ use crate::wire::WireBytes;
 /// # Panics
 ///
 /// Panics if the rendered command exceeds [`MAX_WIRE_LEN`](crate::wire::MAX_WIRE_LEN). The
-/// longest command in any family is the matrix `MT8019MA:255.255.255.255;`, at 25 bytes.
+/// longest command in any protocol is the matrix `MT8019MA:255.255.255.255;`, at 25 bytes.
 pub(crate) fn render(args: fmt::Arguments<'_>) -> WireBytes {
     let mut bytes = WireBytes::new();
     bytes.write_fmt(args).expect("ASCII command longer than MAX_WIRE_LEN");

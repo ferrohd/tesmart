@@ -1,6 +1,6 @@
-//! Family A': 4-port dual-monitor KVM switches.
+//! The `kvm-dual` protocol: 4-port dual-monitor KVM switches.
 //!
-//! Same framing as [`Kvm`](crate::profile::Kvm), **different meanings from `0x03` up**. No
+//! Same framing as [`KvmTable`](crate::protocol::KvmTable), **different meanings from `0x03` up**. No
 //! official TESmart document covers this variant; everything here comes from
 //! `spuder/Tesmart-KVM`, tested over RS232 at 9600 baud on TESmart's 4-port dual-monitor
 //! HDMI/USB-C 4K60 switch.
@@ -20,8 +20,8 @@
 //! There is no read command, so nothing on a dual-monitor switch can be verified.
 
 use crate::command::{CommandInfo, Request, RequestKind, Response};
-use crate::profile::base::{self, OPCODE_BUZZER, OPCODE_SWITCH};
-use crate::profile::{Family, Profile, Unsupported, sealed};
+use crate::protocol::base::{self, OPCODE_BUZZER, OPCODE_SWITCH};
+use crate::protocol::{CommandTable, Protocol, Unsupported, sealed};
 use crate::value::Output;
 use crate::wire::{AsciiStyle, Chunk, Frame, Transmit};
 
@@ -46,15 +46,15 @@ pub const OPCODE_AUTO_SWITCH: u8 = 0x08;
 /// Auto-switch dwell time, the only command with a two-byte payload.
 pub const OPCODE_AUTO_SWITCH_INTERVAL: u8 = 0x09;
 
-/// The Family A' command table.
+/// The `kvm-dual` command table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct KvmDual;
+pub struct KvmDualTable;
 
-impl sealed::Sealed for KvmDual {}
+impl sealed::Sealed for KvmDualTable {}
 
-impl Profile for KvmDual {
-    fn family(self) -> Family {
-        Family::KvmDual
+impl CommandTable for KvmDualTable {
+    fn protocol(self) -> Protocol {
+        Protocol::KvmDual
     }
 
     fn encode(self, request: Request, _style: AsciiStyle) -> Result<Transmit, Unsupported> {
@@ -97,7 +97,7 @@ impl Profile for KvmDual {
             | Request::MatrixBuzzer(_)
             | Request::MatrixLoadPreset(_)
             | Request::MatrixSavePreset(_) => {
-                Err(Unsupported::new(Family::KvmDual, request.kind()))
+                Err(Unsupported::new(Protocol::KvmDual, request.kind()))
             }
         }
     }
@@ -105,7 +105,7 @@ impl Profile for KvmDual {
     /// Dual-monitor switches have no documented read command, but they share the framing, so an
     /// unsolicited `0x11` report is still interpreted if one ever shows up.
     fn decode(self, chunk: &Chunk<'_>) -> Option<Response> {
-        base::decode_hex_family(chunk)
+        base::decode_hex(chunk)
     }
 
     fn commands(self) -> &'static [CommandInfo] {
@@ -136,16 +136,16 @@ mod tests {
     use crate::value::{Buzzer, HotkeyTrigger, NetField, Step, SwitchInterval, Toggle};
 
     fn encode(request: Request) -> std::vec::Vec<u8> {
-        KvmDual
+        KvmDualTable
             .encode(request, AsciiStyle::DEFAULT)
-            .expect("supported by family A'")
+            .expect("supported by the kvm-dual protocol")
             .bytes()
             .as_slice()
             .to_vec()
     }
 
     #[test]
-    fn shares_the_base_commands_with_family_a() {
+    fn shares_the_base_commands_with_the_kvm_table() {
         assert_eq!(
             encode(Request::Switch(Port::new(3).unwrap())),
             [0xAA, 0xBB, 0x03, 0x01, 0x03, 0xEE]
@@ -214,10 +214,10 @@ mod tests {
             Request::NetQuery(NetField::Ip),
             Request::MatrixMirror,
         ] {
-            let error = KvmDual
+            let error = KvmDualTable
                 .encode(request, AsciiStyle::DEFAULT)
                 .expect_err("not a dual-monitor command");
-            assert_eq!(error.family, Family::KvmDual);
+            assert_eq!(error.protocol, Protocol::KvmDual);
             assert_eq!(error.request, request.kind());
         }
     }

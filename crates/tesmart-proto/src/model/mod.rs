@@ -1,4 +1,4 @@
-//! The model registry: how many ports, which family, and what is actually known to work.
+//! The model registry: how many ports, which protocol, and what is actually known to work.
 //!
 //! Only "switch input" is documented for every TESmart series. Everything else depends on which
 //! PDF covers your model, and several commands are known to work only because community tools
@@ -7,8 +7,8 @@
 //! [`Support::Unsupported`], so a CLI can say *why* it is about to try something, or refuse.
 //!
 //! Capabilities are a property of the *model*; the wire encoding is a property of the
-//! [`Family`]. The two are deliberately separate: an undocumented switch can be driven by
-//! picking a family and a port count without inventing a registry entry.
+//! [`Protocol`]. The two are deliberately separate: an undocumented switch can be driven by
+//! picking a protocol and a port count without inventing a registry entry.
 //!
 //! This module holds the vocabulary; [`registry`] holds the data. They are split because the
 //! table is long and changes for a different reason: adding a model should not touch the code
@@ -20,7 +20,7 @@ use core::fmt;
 
 use crate::command::RequestKind;
 use crate::port::PortCount;
-use crate::profile::{Family, Profile};
+use crate::protocol::{CommandTable, Protocol};
 
 pub use crate::model::registry::MODELS;
 
@@ -82,8 +82,8 @@ impl fmt::Display for Support {
 
 /// What a model can do, with the provenance of each claim.
 ///
-/// The fields are the commands that vary *within* a family. Everything else is covered by
-/// [`Self::baseline`], because the family already decides whether it exists at all.
+/// The fields are the commands that vary *within* a protocol. Everything else is covered by
+/// [`Self::baseline`], because the protocol already decides whether it exists at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Capabilities {
@@ -128,7 +128,7 @@ impl Capabilities {
 
     /// What is known about one kind of request.
     ///
-    /// One field can back more than one request, because the families spell the same idea
+    /// One field can back more than one request, because the protocols spell the same idea
     /// differently: a KVM's `0x03` and a matrix's `MT00CT` are both `display_timeout`. No model
     /// has both, so sharing the field cannot lose information.
     pub const fn support(self, kind: RequestKind) -> Support {
@@ -154,8 +154,8 @@ pub struct ModelInfo {
     pub key: &'static str,
     /// Other names that resolve to this entry.
     pub aliases: &'static [&'static str],
-    /// Which protocol family the model speaks.
-    pub family: Family,
+    /// Which protocol the model speaks.
+    pub protocol: Protocol,
     /// How many inputs it has.
     pub ports: PortCount,
     /// How many outputs it has.
@@ -173,15 +173,15 @@ pub struct ModelInfo {
 impl ModelInfo {
     /// Whether the model both speaks and is believed to implement a kind of request.
     pub fn supports(&self, kind: RequestKind) -> bool {
-        self.family.supports(kind) && self.caps.support(kind).is_available()
+        self.protocol.supports(kind) && self.caps.support(kind).is_available()
     }
 
-    /// What is known about a kind of request, taking the family into account.
+    /// What is known about a kind of request, taking the protocol into account.
     ///
-    /// A command the family does not have at all is [`Support::Unsupported`], whatever the
+    /// A command the protocol does not have at all is [`Support::Unsupported`], whatever the
     /// capability flags say.
     pub fn support(&self, kind: RequestKind) -> Support {
-        if self.family.supports(kind) { self.caps.support(kind) } else { Support::Unsupported }
+        if self.protocol.supports(kind) { self.caps.support(kind) } else { Support::Unsupported }
     }
 
     /// Whether `name` refers to this model, ignoring case.
@@ -194,10 +194,10 @@ impl ModelInfo {
 
 impl fmt::Display for ModelInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.family == Family::Matrix {
-            return write!(f, "{} ({}, {}x{})", self.key, self.family, self.ports, self.outputs);
+        if self.protocol == Protocol::Matrix {
+            return write!(f, "{} ({}, {}x{})", self.key, self.protocol, self.ports, self.outputs);
         }
-        write!(f, "{} ({}, {} ports)", self.key, self.family, self.ports)
+        write!(f, "{} ({}, {} ports)", self.key, self.protocol, self.ports)
     }
 }
 
@@ -230,7 +230,7 @@ mod tests {
         }
     }
 
-    /// One capability field backs both families' spelling of the same idea.
+    /// One capability field backs both protocols' spelling of the same idea.
     #[test]
     fn capability_fields_cover_both_spellings() {
         let caps = Capabilities { buzzer: Support::Documented, ..Capabilities::NONE };

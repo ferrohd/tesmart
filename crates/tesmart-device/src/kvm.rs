@@ -1,4 +1,4 @@
-//! Families A and A' in the emulator: the hex frame handlers.
+//! Protocols A and A' in the emulator: the hex frame handlers.
 //!
 //! The two share framing and the first two opcodes, and diverge from `0x03`: on a
 //! single-monitor switch it sets the display timeout, on a dual-monitor one it steps output A's
@@ -6,14 +6,14 @@
 
 use crate::{Device, allows, switch_from};
 use tesmart_proto::port::Port;
-use tesmart_proto::profile::{dual, kvm};
+use tesmart_proto::protocol::{dual, kvm};
 use tesmart_proto::value::{
     Buzzer, DisplayTimeout, HotkeyTrigger, Output, Step, SwitchInterval, Toggle,
 };
 use tesmart_proto::wire::frame::{OPCODE_PORT_REPORT, TERMINATOR};
 
 impl Device {
-    /// Family A. Called by the dispatcher in [`super`].
+    /// The `kvm` protocol. Called by the dispatcher in [`super`].
     pub(super) fn single_monitor_frame(
         &mut self,
         opcode: u8,
@@ -21,8 +21,8 @@ impl Device {
     ) {
         let value = payload.as_slice()[0];
         match opcode {
-            tesmart_proto::profile::base::OPCODE_SWITCH => self.switch_to(value),
-            tesmart_proto::profile::base::OPCODE_BUZZER if allows(self.config.caps.buzzer) => {
+            tesmart_proto::protocol::base::OPCODE_SWITCH => self.switch_to(value),
+            tesmart_proto::protocol::base::OPCODE_BUZZER if allows(self.config.caps.buzzer) => {
                 self.state.buzzer = if value == 0 { Buzzer::Muted } else { Buzzer::Audible };
             }
             kvm::OPCODE_DISPLAY_TIMEOUT if allows(self.config.caps.display_timeout) => {
@@ -42,13 +42,13 @@ impl Device {
         }
     }
 
-    /// Family A'. Called by the dispatcher in [`super`].
+    /// The `kvm-dual` protocol. Called by the dispatcher in [`super`].
     pub(super) fn dual_monitor_frame(&mut self, opcode: u8, payload: tesmart_proto::wire::Payload) {
         let data = payload.as_slice();
         let value = data[0];
         match opcode {
-            tesmart_proto::profile::base::OPCODE_SWITCH => self.switch_to(value),
-            tesmart_proto::profile::base::OPCODE_BUZZER => {
+            tesmart_proto::protocol::base::OPCODE_SWITCH => self.switch_to(value),
+            tesmart_proto::protocol::base::OPCODE_BUZZER => {
                 self.state.buzzer = if value == 0 { Buzzer::Muted } else { Buzzer::Audible };
             }
             dual::OPCODE_STEP_OUTPUT_A => {

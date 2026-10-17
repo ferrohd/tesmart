@@ -24,7 +24,7 @@ use std::collections::VecDeque;
 
 use tesmart_proto::engine::{Event, ExchangeError, ExchangeId, Policy};
 use tesmart_proto::wire::{AsciiScope, Hex, Transmit};
-use tesmart_proto::{Engine, Family, Profile, Request, RequestKind, Response};
+use tesmart_proto::{CommandTable, Engine, Protocol, Request, RequestKind, Response};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::time::Instant;
 
@@ -79,7 +79,7 @@ pub struct Stats {
 }
 
 /// One conversation with one switch.
-pub struct Session<C: Connector, P: Profile = Family> {
+pub struct Session<C: Connector, P: CommandTable = Protocol> {
     connector: C,
     engine: Engine<P, Instant>,
     conn: Option<C::Io>,
@@ -90,10 +90,10 @@ pub struct Session<C: Connector, P: Profile = Family> {
     stats: Stats,
 }
 
-impl<C: Connector, P: Profile> Session<C, P> {
-    /// A session for `profile`, with the default protocol [`Policy`] and connection policy.
-    pub fn new(connector: C, profile: P) -> Self {
-        Self::with_policy(connector, profile, Policy::DEFAULT)
+impl<C: Connector, P: CommandTable> Session<C, P> {
+    /// A session for `table`, with the default protocol [`Policy`] and connection policy.
+    pub fn new(connector: C, table: P) -> Self {
+        Self::with_policy(connector, table, Policy::DEFAULT)
     }
 
     /// A session with an explicit protocol policy (timings and ASCII dialect).
@@ -105,12 +105,12 @@ impl<C: Connector, P: Profile> Session<C, P> {
     /// The policy's [`ascii_scope`](Policy::ascii_scope) is taken from the transport rather than
     /// from the caller: a matrix reached over RS232 needs the `MT80xx` wrapped network commands,
     /// and which transport is in use is not something a caller should have to restate.
-    pub fn with_policy(connector: C, profile: P, policy: Policy) -> Self {
+    pub fn with_policy(connector: C, table: P, policy: Policy) -> Self {
         let connection_policy = connector.preferred_policy();
         let policy = policy.with_ascii_scope(scope_for(connector.kind()));
         Self {
             connector,
-            engine: Engine::with_policy(profile, policy),
+            engine: Engine::with_policy(table, policy),
             conn: None,
             policy: connection_policy,
             operation_timeout: DEFAULT_OPERATION_TIMEOUT,
@@ -130,13 +130,13 @@ impl<C: Connector, P: Profile> Session<C, P> {
         self.connector.kind()
     }
 
-    /// The protocol family in use.
-    pub fn family(&self) -> Family {
-        self.engine.profile().family()
+    /// The protocol in use.
+    pub fn protocol(&self) -> Protocol {
+        self.engine.table().protocol()
     }
 
     /// The protocol timings in use.
-    pub fn protocol_policy(&self) -> &Policy {
+    pub fn policy(&self) -> &Policy {
         self.engine.policy()
     }
 
@@ -144,7 +144,7 @@ impl<C: Connector, P: Profile> Session<C, P> {
     ///
     /// The ASCII scope is re-derived from the transport, for the same reason
     /// [`with_policy`](Self::with_policy) derives it.
-    pub fn set_protocol_policy(&mut self, policy: Policy) {
+    pub fn set_policy(&mut self, policy: Policy) {
         let scope = scope_for(self.connector.kind());
         self.engine.set_policy(policy.with_ascii_scope(scope));
     }
@@ -194,7 +194,7 @@ impl<C: Connector, P: Profile> Session<C, P> {
     ///
     /// # Errors
     ///
-    /// [`ClientError::Rejected`] if the active family has no such command (nothing is sent),
+    /// [`ClientError::Rejected`] if the active protocol has no such command (nothing is sent),
     /// [`ClientError::NoReply`] if the switch stayed silent through every retry,
     /// [`ClientError::Transport`] if the link failed, [`ClientError::Timeout`] if the operation
     /// budget ran out.
@@ -215,7 +215,7 @@ impl<C: Connector, P: Profile> Session<C, P> {
         result
     }
 
-    /// Sends bytes that bypass the profile tables, for probing an undocumented model.
+    /// Sends bytes that bypass the command tables, for probing an undocumented model.
     ///
     /// With `expect_reply`, the first thing that comes back is returned whatever it is; with
     /// `false`, the call returns as soon as the bytes are written.
@@ -449,7 +449,7 @@ impl<C: Connector, P: Profile> Session<C, P> {
                 tracing::debug!(
                     target: "tesmart::session",
                     opcode = format_args!("0x{opcode:02X}"),
-                    "frame that no profile interprets"
+                    "frame that no command table interprets"
                 );
             }
             Event::UnexpectedReply { kind } => {
@@ -547,7 +547,7 @@ impl<C: Connector, P: Profile> Session<C, P> {
     }
 }
 
-impl<C: Connector, P: Profile> fmt::Display for Session<C, P> {
+impl<C: Connector, P: CommandTable> fmt::Display for Session<C, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.connector)
     }
@@ -555,11 +555,11 @@ impl<C: Connector, P: Profile> fmt::Display for Session<C, P> {
 
 /// Hand written rather than derived, so that a byte stream does not have to be `Debug` and the
 /// output says something useful about the conversation.
-impl<C: Connector, P: Profile> fmt::Debug for Session<C, P> {
+impl<C: Connector, P: CommandTable> fmt::Debug for Session<C, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Session")
             .field("switch", &format_args!("{}", self.connector))
-            .field("family", &self.family())
+            .field("protocol", &self.protocol())
             .field("connected", &self.conn.is_some())
             .field("connection_policy", &self.policy)
             .field("unsolicited", &self.unsolicited.len())

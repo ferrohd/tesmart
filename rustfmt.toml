@@ -2,6 +2,6 @@ edition = "2024"
 style_edition = "2024"
 max_width = 100
 
-# Keep short struct literals, matches and calls on one line: protocol tables read better as
+# Keep short struct literals, matches and calls on one line: command tables read better as
 # tables than as a column of one-field-per-line blocks.
 use_small_heuristics = "Max"

@@ -11,8 +11,8 @@
 //! | --- | --- |
 //! | [`port`], [`value`] | validated protocol values; the only place the port `±1` conversion happens |
 //! | [`wire`] | hex frame codec, ASCII codec, resynchronising stream decoder |
-//! | [`command`] | [`Request`] / [`Response`], family-independent |
-//! | [`profile`] | per-family command tables ([`profile::Kvm`], [`profile::KvmDual`], [`profile::Matrix`], [`profile::Sdi`]) |
+//! | [`command`] | [`Request`] / [`Response`], protocol-independent |
+//! | [`protocol`] | one command table per protocol, and the [`Protocol`] that selects one |
 //! | [`model`] | model registry: ports and capabilities, with provenance |
 //! | [`engine`] | the sans-IO request/response engine |
 //!
@@ -24,7 +24,7 @@
 //!
 //! | Feature | Default | Effect |
 //! | --- | --- | --- |
-//! | `serde` | no | `Serialize`/`Deserialize` on ports, families, capabilities and settings |
+//! | `serde` | no | `Serialize`/`Deserialize` on ports, protocols, capabilities and settings |
 //!
 //! By default the crate is a bare protocol core: `no_std`, no allocator, and no dependencies
 //! beyond `thiserror`. It is built for `thumbv7em-none-eabi` in CI to keep that honest.
@@ -33,12 +33,12 @@
 //!
 //! ```
 //! use core::time::Duration;
-//! use tesmart_proto::{Engine, Event, Port, Request, Response, profile::Kvm, time::Tick};
+//! use tesmart_proto::{Engine, Event, Port, Request, Response, protocol::KvmTable, time::Tick};
 //!
 //! let mut now = Tick::ZERO;
-//! let mut engine = Engine::new(Kvm);
+//! let mut engine = Engine::new(KvmTable);
 //!
-//! // 1. submit a request; it is validated against the profile immediately
+//! // 1. submit a request; it is validated against the command table immediately
 //! let id = engine.submit(Request::ReadActivePort, now).unwrap();
 //!
 //! // 2. hand the bytes to a transport
@@ -78,7 +78,7 @@ pub mod command;
 pub mod engine;
 pub mod model;
 pub mod port;
-pub mod profile;
+pub mod protocol;
 pub mod time;
 pub mod value;
 pub mod wire;
@@ -87,4 +87,4 @@ pub use crate::command::{Request, RequestKind, Response, ResponseKind};
 pub use crate::engine::{Engine, Event, ExchangeId, Policy};
 pub use crate::model::{Capabilities, ModelInfo, Support};
 pub use crate::port::{Port, PortCount};
-pub use crate::profile::{Family, Profile};
+pub use crate::protocol::{CommandTable, Protocol};

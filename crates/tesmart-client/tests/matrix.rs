@@ -30,7 +30,7 @@ fn matrix(key: &str) -> (Matrix<tesmart_sim::InProcess>, SimHandle) {
 
     let matrix = Matrix::builder(sim.connector())
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .route_defaults(RouteOptions::default().settle(Duration::ZERO))
         .build()
@@ -117,7 +117,7 @@ async fn a_silent_matrix_leaves_the_route_unconfirmed() {
 
     let mut matrix = Matrix::builder(sim.connector())
         .model(info)
-        .protocol_policy(Policy::IMMEDIATE)
+        .policy(Policy::IMMEDIATE)
         .connection_policy(ConnectionPolicy::Persistent)
         .route_defaults(RouteOptions::default().settle(Duration::ZERO))
         .build()

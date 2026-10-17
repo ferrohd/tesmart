@@ -11,7 +11,7 @@
 
 use crate::model::{Capabilities, ModelInfo, Support};
 use crate::port::PortCount;
-use crate::profile::Family;
+use crate::protocol::Protocol;
 
 const DOC: Support = Support::Documented;
 const FIELD: Support = Support::FieldTested;
@@ -109,11 +109,11 @@ mod archetype {
 /// and the community tools that tested the undocumented parts. The model-to-document mapping
 /// comes from TESmart's own index, "LAN RS232 Control Protocols", updated 2024-01-10.
 pub static MODELS: &[ModelInfo] = &[
-    // ---- Family A, single monitor ------------------------------------------------------------
+    // ---- kvm, single monitor --------------------------------------------------------------------
     ModelInfo {
         key: "DKS0401A30",
         aliases: &["4x1-dvi"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(4),
         outputs: PortCount::known(1),
         caps: archetype::KVM_SWITCH_ONLY,
@@ -122,7 +122,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS0801A20",
         aliases: &["8x1-v1"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_SWITCH_READ,
@@ -131,7 +131,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS0801A30",
         aliases: &["8x1-v2"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_FULL,
@@ -140,7 +140,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS0801A40",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_FULL,
@@ -149,7 +149,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS0801A1U",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_FULL,
@@ -158,7 +158,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HSW0801A10",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_FULL,
@@ -167,7 +167,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HSW0801A1U",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_FULL,
@@ -176,7 +176,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKE0802A10",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_FULL,
@@ -185,7 +185,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS1601A10",
         aliases: &["16x1"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(16),
         outputs: PortCount::known(1),
         caps: archetype::KVM_16X1,
@@ -194,7 +194,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS1601A1U",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(16),
         outputs: PortCount::known(1),
         caps: archetype::KVM_16X1,
@@ -203,7 +203,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HSW1601A10",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(16),
         outputs: PortCount::known(1),
         caps: archetype::KVM_16X1,
@@ -212,17 +212,17 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HSW1601A1U",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(16),
         outputs: PortCount::known(1),
         caps: archetype::KVM_16X1,
         notes: "HDMI switch without KVM, same protocol as the 16x1 KVMs.",
     },
-    // ---- Family A, EB23 and P23 series --------------------------------------------------------
+    // ---- kvm, EB23 and P23 series ---------------------------------------------------------------
     ModelInfo {
         key: "HKS801-EB23",
         aliases: &["eb23-8"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_EB23,
@@ -233,7 +233,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS1601-EB23",
         aliases: &["eb23-16"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(16),
         outputs: PortCount::known(1),
         caps: archetype::KVM_EB23,
@@ -242,7 +242,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS801-P23",
         aliases: &["p23-8"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: archetype::KVM_P23,
@@ -253,84 +253,83 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HKS1601-P23",
         aliases: &["p23-16"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(16),
         outputs: PortCount::known(1),
         caps: archetype::KVM_P23,
         notes: "As HKS801-P23, with 16 inputs.",
     },
-    // ---- Family A, no published protocol ------------------------------------------------------
+    // ---- kvm, no published document -------------------------------------------------------------
     ModelInfo {
         key: "HKS801-M24",
         aliases: &["m24-8"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: Capabilities::UNVERIFIED,
-        notes: "No protocol document could be found for the M24 series. Family A is a guess based \
-                on the product line; everything is unverified.",
+        notes: "No protocol document could be found for the M24 series. The kvm protocol is a \
+                guess based on the product line; everything is unverified.",
     },
     ModelInfo {
         key: "HKS401-M24",
         aliases: &["m24-4"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(4),
         outputs: PortCount::known(1),
         caps: Capabilities::UNVERIFIED,
-        notes: "No protocol document could be found for the M24 series. Family A is a guess based \
-                on the product line; everything is unverified.",
+        notes: "No protocol document could be found for the M24 series. The kvm protocol is a \
+                guess based on the product line; everything is unverified.",
     },
     ModelInfo {
         key: "DKS203-M24",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(2),
         outputs: PortCount::known(1),
         caps: Capabilities::UNVERIFIED,
         notes: "Reported in use by community tooling (EatMoTacos/tesmart-kvm-pico-deck) but \
-                absent from TESmart's protocol index. Family A and the port count are guesses \
-                from the model number; everything is unverified.",
+                absent from TESmart's protocol index. The kvm protocol and the port count are \
+                guesses from the model number; everything is unverified.",
     },
     ModelInfo {
         key: "HKS801-L23",
         aliases: &["l23-8"],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(8),
         outputs: PortCount::known(1),
         caps: Capabilities::UNVERIFIED,
         notes: "Named in community reports; no protocol document is published for the L23 \
-                series. Family A is a guess based on the product line.",
+                series. The kvm protocol is a guess based on the product line.",
     },
     ModelInfo {
         key: "PKS0402A20",
         aliases: &[],
-        family: Family::Kvm,
+        protocol: Protocol::Kvm,
         ports: PortCount::known(4),
         outputs: PortCount::known(2),
         caps: Capabilities::UNVERIFIED,
         notes: "A 4-port dual-monitor model named in a community firmware backup \
-                (francoisjacques). Whether it speaks family A or the dual-monitor variant is \
-                untested, so the safer single-monitor family is assumed; everything is \
-                unverified.",
+                (francoisjacques). Whether it speaks kvm or kvm-dual is untested, so the safer \
+                single-monitor protocol is assumed; everything is unverified.",
     },
-    // ---- Family A', dual monitor --------------------------------------------------------------
+    // ---- kvm-dual, dual monitor -----------------------------------------------------------------
     ModelInfo {
         key: "dual-4port",
         aliases: &["kvm-dual-4", "4x2-dual"],
-        family: Family::KvmDual,
+        protocol: Protocol::KvmDual,
         ports: PortCount::known(4),
         outputs: PortCount::known(2),
         caps: archetype::KVM_DUAL,
         notes: "4-port dual-monitor HDMI/USB-C switch, community documented over RS232 only \
                 (spuder/Tesmart-KVM). No read command exists, so nothing can be verified.",
     },
-    // ---- Family B, 4x4 matrices with RS232 only -----------------------------------------------
+    // ---- matrix, 4x4 with RS232 only ------------------------------------------------------------
     // The "4x4 HDMI matrix communication protocol(RS232)" document has routing and nothing
     // else: no display timeout, no buzzer, no presets, and no network section whatsoever.
     ModelInfo {
         key: "HMA0404A30",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_RS232,
@@ -339,7 +338,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0404A40",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_RS232,
@@ -348,7 +347,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0404A50",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_RS232,
@@ -357,7 +356,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0404A70",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_RS232,
@@ -366,7 +365,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0404B40",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_RS232,
@@ -375,17 +374,17 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0404B50",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_RS232,
         notes: "4x4 HDMI matrix, RS232 only: routing commands and the LINK report, nothing else.",
     },
-    // ---- Family B, 4x4 matrices with RS232 and LAN --------------------------------------------
+    // ---- matrix, 4x4 with RS232 and LAN ---------------------------------------------------------
     ModelInfo {
         key: "HMA0404B30",
         aliases: &["4x4-matrix"],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_4X4,
@@ -394,7 +393,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0404A1U",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_4X4,
@@ -403,7 +402,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HME040410H",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_4X4,
@@ -412,18 +411,18 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HME040806R",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(4),
         outputs: PortCount::known(4),
         caps: archetype::MATRIX_4X4,
         notes: "HDMI matrix with extenders, covered by the 4x4 (RS232+IP) document, which \
                 addresses inputs and outputs as 01~04 regardless of the model number.",
     },
-    // ---- Family B, 8x8 matrices ---------------------------------------------------------------
+    // ---- matrix, 8x8 ----------------------------------------------------------------------------
     ModelInfo {
         key: "HMA0808A10",
         aliases: &["8x8-matrix"],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(8),
         outputs: PortCount::known(8),
         caps: archetype::MATRIX_LARGE,
@@ -432,7 +431,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0808A20",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(8),
         outputs: PortCount::known(8),
         caps: archetype::MATRIX_LARGE,
@@ -441,7 +440,7 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0808A30",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(8),
         outputs: PortCount::known(8),
         caps: archetype::MATRIX_LARGE,
@@ -450,17 +449,17 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA0808A1U",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(8),
         outputs: PortCount::known(8),
         caps: archetype::MATRIX_LARGE,
         notes: "8x8 HDMI matrix: routing, eight presets and a buzzer, but no display timeout.",
     },
-    // ---- Family B, 16x16 matrices -------------------------------------------------------------
+    // ---- matrix, 16x16 --------------------------------------------------------------------------
     ModelInfo {
         key: "HMA1616A10",
         aliases: &["16x16-matrix"],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(16),
         outputs: PortCount::known(16),
         caps: archetype::MATRIX_LARGE,
@@ -470,18 +469,18 @@ pub static MODELS: &[ModelInfo] = &[
     ModelInfo {
         key: "HMA1616A20",
         aliases: &[],
-        family: Family::Matrix,
+        protocol: Protocol::Matrix,
         ports: PortCount::known(16),
         outputs: PortCount::known(16),
         caps: archetype::MATRIX_LARGE,
         notes: "16x16 HDMI matrix. Its LINK report writes ports above 9 as A-G, so output 16 \
                 arrives as G, and a full report is 88 bytes.",
     },
-    // ---- Family C, the SDI switch -------------------------------------------------------------
+    // ---- sdi, the SDI switch --------------------------------------------------------------------
     ModelInfo {
         key: "SSW04010A10",
         aliases: &["SSW0401A10", "4x1-sdi"],
-        family: Family::Sdi,
+        protocol: Protocol::Sdi,
         ports: PortCount::known(4),
         outputs: PortCount::known(1),
         caps: archetype::SDI,
@@ -496,14 +495,14 @@ mod tests {
     use super::*;
     use crate::command::RequestKind;
     use crate::model::lookup;
-    use crate::profile::Profile as _;
+    use crate::protocol::CommandTable as _;
 
     #[test]
     fn looks_up_by_key_and_alias_ignoring_case() {
         assert_eq!(lookup("HKS801-EB23").map(|m| m.key), Some("HKS801-EB23"));
         assert_eq!(lookup("hks801-eb23").map(|m| m.key), Some("HKS801-EB23"));
         assert_eq!(lookup(" eb23-8 ").map(|m| m.key), Some("HKS801-EB23"));
-        assert_eq!(lookup("dual-4port").map(|m| m.family), Some(Family::KvmDual));
+        assert_eq!(lookup("dual-4port").map(|m| m.protocol), Some(Protocol::KvmDual));
         assert_eq!(lookup("nonexistent"), None);
     }
 
@@ -543,9 +542,9 @@ mod tests {
     }
 
     #[test]
-    fn family_support_overrides_capability_flags() {
+    fn protocol_support_overrides_capability_flags() {
         let dual = lookup("dual-4port").unwrap();
-        // the dual-monitor family has no read command at all
+        // the dual-monitor protocol has no read command at all
         assert_eq!(dual.support(RequestKind::ReadActivePort), Support::Unsupported);
         // and its step command is community documented
         assert_eq!(dual.support(RequestKind::StepOutput), Support::FieldTested);
@@ -564,9 +563,9 @@ mod tests {
 
     /// Each capability field and the requests that read it.
     ///
-    /// One field can back more than one request, because the families spell the same idea
+    /// One field can back more than one request, because the protocols spell the same idea
     /// differently: a KVM's `0x03` and a matrix's `MT00CT` are both `display_timeout`. A field
-    /// is therefore legitimate for a model if *any* of its requests exists in that family.
+    /// is therefore legitimate for a model if *any* of its requests exists in that protocol.
     const FIELDS: &[(&str, &[RequestKind])] = &[
         ("read_port", &[RequestKind::ReadActivePort]),
         ("buzzer", &[RequestKind::Buzzer, RequestKind::MatrixBuzzer]),
@@ -579,15 +578,15 @@ mod tests {
     #[test]
     fn every_entry_is_internally_consistent() {
         for model in MODELS {
-            // a capability can only be claimed for a command the family actually has
+            // a capability can only be claimed for a command the protocol actually has
             for (field, kinds) in FIELDS {
                 let claimed = kinds.iter().any(|kind| model.caps.support(*kind).is_available());
-                let exists = kinds.iter().any(|kind| model.family.supports(*kind));
+                let exists = kinds.iter().any(|kind| model.protocol.supports(*kind));
                 assert!(
                     !claimed || exists,
-                    "{} claims {field} but family {} has no such command",
+                    "{} claims {field} but protocol {} has no such command",
                     model.key,
-                    model.family
+                    model.protocol
                 );
             }
 
@@ -595,8 +594,8 @@ mod tests {
             assert_ne!(std::format!("{model}"), "");
 
             // a matrix is square in every published document; a KVM has one or two outputs
-            match model.family {
-                Family::Matrix => assert_eq!(
+            match model.protocol {
+                Protocol::Matrix => assert_eq!(
                     model.ports.get(),
                     model.outputs.get(),
                     "{} is not square; check the document",
@@ -609,13 +608,13 @@ mod tests {
         }
     }
 
-    /// Whatever the capability flags say, the family has the last word.
+    /// Whatever the capability flags say, the protocol has the last word.
     #[test]
-    fn the_family_overrides_every_claim() {
+    fn the_protocol_overrides_every_claim() {
         for model in MODELS {
             for (_, kinds) in FIELDS {
                 for kind in *kinds {
-                    if !model.family.supports(*kind) {
+                    if !model.protocol.supports(*kind) {
                         assert_eq!(
                             model.support(*kind),
                             Support::Unsupported,
@@ -663,7 +662,7 @@ mod tests {
     #[test]
     fn the_sdi_switch_has_exactly_one_command() {
         let sdi = lookup("SSW04010A10").unwrap();
-        assert_eq!(sdi.family, Family::Sdi);
+        assert_eq!(sdi.protocol, Protocol::Sdi);
         assert_eq!(sdi.ports.get(), 4);
         assert_eq!(sdi.support(RequestKind::Switch), Support::Documented);
 

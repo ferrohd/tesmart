@@ -1,4 +1,4 @@
-# tesmart-rs
+# tesmart
 
 Rust tooling for TESmart KVM switches and HDMI matrices, over TCP or RS232: a library, a command
 line tool, and a transcription of the protocols they speak.
@@ -85,3 +85,9 @@ A Nix flake provides the toolchain: `nix develop`.
 ## Licence
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+For commercial licensing options (use without AGPL obligations), contact the project maintainer.
+
+## Disclamer
+
+This project is not affiliated with [TESmart](https://tesmart.com/). It is an independent, community-developed library.

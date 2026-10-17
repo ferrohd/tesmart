@@ -3,7 +3,14 @@
 //! A pts is a real tty: it goes through the same `open`, the same termios setup and the same
 //! reactor registration as `/dev/ttyUSB0` would. That makes it the closest thing to hardware
 //! coverage available in CI, and it is why `tokio-serial` provides the pair in the first place.
-#![cfg(unix)]
+//!
+//! Linux only, and not for want of trying. `SerialStream::open` sets a line speed, and Darwin
+//! rejects that on a pts with `ENOTTY` ("Not a typewriter"), so every test here fails at connect
+//! on macOS. Asking for speed `B0` instead does open — and then hangs up the line, so reads work
+//! and writes are silently discarded, which is strictly worse than failing. The production path
+//! has to set a speed, so there is nothing to test here that macOS will allow; a real serial
+//! device on Darwin is a different matter, and untested for want of hardware in CI.
+#![cfg(target_os = "linux")]
 
 use std::time::Duration;
 
@@ -20,11 +27,8 @@ fn port(n: u8) -> Port {
     Port::new(n).unwrap()
 }
 
-// A pts takes the same 9600 as real hardware, on every Unix. This used to pass baud 0 on macOS,
-// on the theory that it told the driver to skip the speed ioctl. It does not: in termios `B0`
-// means hang up the line. The port still opened and still delivered bytes the emulator wrote,
-// so the one test that only listens passed, while all five that send a command hung forever on
-// a write that went nowhere.
+// A pts takes the same 9600 as real hardware. This used to pass baud 0 when the file still ran
+// on macOS; see the module docs for why neither value works there.
 
 /// The client's end of a pseudo terminal, kept open for the duration of a test.
 ///

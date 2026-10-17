@@ -50,7 +50,7 @@ jobs:
           command: release
         env:
           # A PAT, not the default GITHUB_TOKEN. Releasing creates tags, and a tag pushed by the
-          # default token does not trigger workflows, so tesmart-cli-release.yml would never run
+          # default token does not trigger workflows, so tesmart-cli--release.yml would never run
           # and the draft release would sit empty forever.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

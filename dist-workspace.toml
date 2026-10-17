@@ -4,7 +4,7 @@ members = ["cargo:."]
 # Config for 'dist'. Only `tesmart-cli` produces a binary, so it is the only package dist
 # considers an app; the seven libraries are skipped automatically for having no binaries.
 #
-# The generated workflow is .github/workflows/tesmart-cli-release.yml, which is checked in and
+# The generated workflow is .github/workflows/tesmart-cli--release.yml, which is checked in and
 # verified by the `dist` job in ci.yml. Edit this file and re-run `dist generate`, never the
 # workflow directly.
 [dist]
@@ -35,10 +35,21 @@ targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-window
 # same release.
 create-release = false
 
-# Restricts the workflow's tag trigger to 'tesmart-cli**[0-9]+.[0-9]+.[0-9]+*'. release-plz tags
-# every published crate as <package>-v<version>, so without a namespace all eight tags would
-# start this workflow and the seven library ones would mint empty, build-less releases.
-tag-namespace = "tesmart-cli"
+# Restricts the workflow's tag trigger. release-plz tags every published crate as
+# <package>-v<version>, so without a namespace all eight tags would start this workflow and the
+# seven library ones would mint empty, build-less releases.
+#
+# The trailing hyphen is load-bearing. "tesmart-cli" alone yields the pattern
+# 'tesmart-cli**[0-9]+.[0-9]+.[0-9]+*', and "tesmart-cli" is a prefix of "tesmart-client": the
+# tag tesmart-client-v0.1.0 matches it as "tesmart-cli" + "ent-v" + "0.1.0". That fired this
+# workflow on a library tag during the 0.1.0 release. With the hyphen, tesmart-client-v* cannot
+# match, because the twelfth character is 'e' rather than '-'.
+#
+# dist names the generated file "<tag-namespace>-release.yml", so the doubled hyphen in
+# tesmart-cli--release.yml is an artefact of that and not a mistake. Changing the namespace
+# renames the file without deleting the old one, which then keeps its own trigger: if you touch
+# this, check `ls .github/workflows` afterwards.
+tag-namespace = "tesmart-cli-"
 
 # Build all three targets on every pull request, on native runners, with real linking.
 #

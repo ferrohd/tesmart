@@ -1,0 +1,42 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'. Only `tesmart-cli` produces a binary, so it is the only package dist
+# considers an app; the seven libraries are skipped automatically for having no binaries.
+#
+# The generated workflow is .github/workflows/tesmart-cli-release.yml, which is checked in and
+# verified by the `dist` job in ci.yml. Edit this file and re-run `dist generate`, never the
+# workflow directly.
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.33.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax).
+#
+# Every one of these builds on a native runner. aarch64-unknown-linux-gnu is deliberately absent:
+# it needs a cross linker and sysroot, and `serialport` is platform FFI, so it is not something to
+# discover is broken during a release. Add it once it has been proven separately.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
+# release-plz owns the GitHub release: it publishes the crates, pushes the tag and creates the
+# release as a draft with the changelog as its body. dist then uploads the binaries into that
+# draft and undrafts it once they are all there. Without this both tools would try to create the
+# same release.
+create-release = false
+
+# Restricts the workflow's tag trigger to 'tesmart-cli**[0-9]+.[0-9]+.[0-9]+*'. release-plz tags
+# every published crate as <package>-v<version>, so without a namespace all eight tags would
+# start this workflow and the seven library ones would mint empty, build-less releases.
+tag-namespace = "tesmart-cli"
+
+# ci.yml already runs `dist plan` on pull requests, together with `dist generate --check` which
+# dist's own pull request mode does not do. Leaving this on would run the plan twice per PR.
+pr-run-mode = "skip"

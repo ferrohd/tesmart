@@ -64,6 +64,11 @@ missing_docs = "deny"
 all = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 # `tesmart-device` takes over seven minutes to compile at opt-level 3 and about one second at
 # opt-level 2 — the cliff is entirely between those two levels. The cause is `core::fmt`:
 # `encode_link_reply` calls `write_fmt(format_args!(..))` inside a loop over up to sixteen

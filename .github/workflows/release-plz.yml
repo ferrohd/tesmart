@@ -4,73 +4,78 @@ on:
   push:
     branches: [master]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The same suite the pull request checks run. The release job gates on this: release pull
-  # requests are opened with the default GITHUB_TOKEN, which cannot trigger workflow runs, so
-  # this is the only thing standing between a merged release PR and crates.io.
-  checks:
-    name: CI
-    uses: ./.github/workflows/ci.yml
-
   # Publish the packages whose version is not on the registry yet, in dependency order, then tag
-  # and create the GitHub release. With `release_always = false` this only acts on commits
-  # coming from a release PR.
-  release-plz-release:
-    name: Release-plz release
+  # and create the GitHub releases. With `release_always = false` this only acts on commits that
+  # came from merging a release pull request.
+  #
+  # There is deliberately no `needs: checks` here. That gate exists in projects where release-plz
+  # runs with the default GITHUB_TOKEN, which cannot trigger workflows and therefore starves the
+  # release pull request of CI, leaving the release job as the only place checks could run. We use
+  # a PAT, so the release pull request is checked by ci.yml like any other, before the merge that
+  # reaches this job.
+  release:
+    name: Release
     runs-on: ubuntu-latest
-    needs: checks
+    timeout-minutes: 30
     if: ${{ github.repository_owner == 'ferrohd' }}
     permissions:
       contents: write
-      pull-requests: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          # Full history is required to release from the latest commit of the release PR.
+          # Full history, so release-plz can see what changed since the last release.
           fetch-depth: 0
+          # The token is given to the release-plz step alone rather than left in the git config.
+          # It would only be needed here if we signed tags or ran `git push` ourselves.
           persist-credentials: false
 
-      - name: Toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Release
-        uses: release-plz/action@v0.5.135
+        uses: release-plz/action@v0.5
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          # A PAT, not the default GITHUB_TOKEN. Releasing creates tags, and a tag pushed by the
+          # default token does not trigger workflows, so tesmart-cli-release.yml would never run
+          # and the draft release would sit empty forever.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   # Open or update the release pull request carrying the version bumps and changelogs.
-  release-plz-pr:
-    name: Release-plz PR
+  release-pr:
+    name: Release PR
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: ${{ github.repository_owner == 'ferrohd' }}
     permissions:
       contents: write
       pull-requests: write
-    # Serialise runs so two pushes cannot race on the same release PR. Deliberately no
-    # `cancel-in-progress`, which would drop a pending run.
+    # Serialise runs so two pushes cannot race on the same release pull request. Deliberately no
+    # cancel-in-progress, which would drop a pending run rather than queue it.
     concurrency:
-      group: release-plz-${{ github.ref }}
+      group: release-plz-pr-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Release PR
-        uses: release-plz/action@v0.5.135
+        uses: release-plz/action@v0.5
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The PAT is what lets ci.yml run on the release pull request it opens.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

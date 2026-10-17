@@ -5,6 +5,10 @@ release_always = false
 # Pin the tag template. The default switches to "v{{ version }}" whenever the workspace has a
 # single publishable package, so pinning keeps tag names stable regardless of how many crates
 # are published.
+#
+# Per-package tags are not optional here: all eight crates are published, and eight releases
+# cannot share one tag. dist's trigger is narrowed to the tesmart-cli tag via `tag-namespace` in
+# dist-workspace.toml so the seven library tags do not start the binary build.
 git_tag_name = "{{ package }}-v{{ version }}"
 
 # `cargo publish` verifies by building with default features only. That would leave `serial` and
@@ -13,6 +17,14 @@ git_tag_name = "{{ package }}-v{{ version }}"
 publish_all_features = true
 
 pr_labels = ["release"]
+
+# tesmart-cli is the only crate that ships a binary, so its release is the one dist fills in.
+# Creating it as a draft is the handoff: dist uploads the archives and installers into it and
+# undrafts it once they are all present, which pairs with `create-release = false` on dist's
+# side. The seven library releases are published immediately, since nothing is pending for them.
+[[package]]
+name = "tesmart-cli"
+git_release_draft = true
 
 [changelog]
 # Never drop a breaking change, even when its type matches a skip rule below.

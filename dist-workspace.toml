@@ -10,23 +10,26 @@ members = ["cargo:."]
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax).
 #
-# 0.32.0, not 0.33.0: 0.33.0 exists as a GitHub release but was never published to crates.io, so
-# `taiki-e/install-action` resolves 0.32.0 and `dist generate --check` fails on the mismatch.
-# Keep this at a version that is actually installable, and regenerate with the same one.
-cargo-dist-version = "0.32.0"
+# Must match whatever runs `dist generate --check`, which is now the `cargo-dist` in the pinned
+# nixpkgs. Upgrades therefore arrive by bumping flake.lock, in one place. Getting this wrong is
+# not subtle: the check fails with "you're running X but Y is set".
+cargo-dist-version = "0.31.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax).
 #
-# Every one of these builds on a native runner. aarch64-unknown-linux-gnu is deliberately absent:
-# it needs a cross linker and sysroot, and `serialport` is platform FFI, so it is not something to
-# discover is broken during a release. Add it once it has been proven separately.
+# Every one of these builds on a native runner: ubuntu-22.04, macos-14 and windows-2022.
+#
+# aarch64-unknown-linux-gnu is absent because it needs a cross linker and sysroot, and
+# `serialport` is platform FFI, so it is not something to discover is broken during a release.
+# x86_64-apple-darwin is absent because Intel Macs no longer justify a second macOS runner, and
+# this workspace has no target_arch conditionals at all, so aarch64-apple-darwin exercises every
+# darwin-specific code path there is.
 targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc",
 ]
 
@@ -41,6 +44,13 @@ create-release = false
 # start this workflow and the seven library ones would mint empty, build-less releases.
 tag-namespace = "tesmart-cli"
 
-# ci.yml already runs `dist plan` on pull requests, together with `dist generate --check` which
-# dist's own pull request mode does not do. Leaving this on would run the plan twice per PR.
-pr-run-mode = "skip"
+# Build all three targets on every pull request, on native runners, with real linking.
+#
+# This is the only cross-platform coverage that links. Our own CI is Linux-only and reaches the
+# other two with `cargo check --target`, which catches type errors but never runs the linker, so
+# a missing import-lib symbol on Windows would otherwise surface during a release — after the
+# crates.io publish, which cannot be undone. Three extra runners per PR buys that away.
+#
+# It also exercises `--profile dist`, which is where the tesmart-device opt-level 3 compile bomb
+# lived, so that regression cannot come back unnoticed.
+pr-run-mode = "upload"

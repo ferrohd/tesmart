@@ -6,9 +6,9 @@ How the workspace is layered, and why. For the wire-level details (bytes, opcode
 
 **Sans-IO at the core.** The protocol is a pure state machine: bytes in, events out, no sockets and no clock. Everything that awaits lives in exactly one crate. This is what makes the hard parts — command spacing, retries, resynchronisation after garbage — testable without hardware, a network, or a running runtime.
 
-**Almost everything is shared.** A protocol family is only an opcode table (data, not code), a codec choice, and a few framing quirks.
+**Almost everything is shared.** A protocol is only an opcode table (data, not code), a codec choice, and a few framing quirks.
 
-**Capabilities belong to the model, not the family.** The family says which commands *exist*; the registry says which ones are believed to *work*, and on what evidence. Within the matrix family alone there are four different command sets.
+**Capabilities belong to the model, not the protocol.** The protocol says which commands *exist*; the registry says which ones are believed to *work*, and on what evidence. Within `matrix` alone there are four different command sets.
 
 **Say what was actually established.** The protocol acknowledges almost nothing, so operations return outcomes rather than `()`. "The switch is on port 3" and "port 3 was requested and nobody can confirm it" must stay distinguishable all the way to the user.
 
@@ -31,7 +31,7 @@ graph TD
 
 | Crate | Role | Awaits? | `no_std`? |
 | --- | --- | --- | --- |
-| `tesmart-proto` | the protocol, **controller** side: codecs, families, registry, engine | no | **yes** |
+| `tesmart-proto` | the protocol, **controller** side: codecs, command tables, registry, engine | no | **yes** |
 | `tesmart-device` | the protocol, **switch** side: a state machine that answers like hardware | no | **yes** |
 | `tesmart-client` | the async driver and the operations | **yes** | no |
 | `tesmart-tcp` | one `Connector` over TCP | yes | no |
@@ -48,7 +48,7 @@ The transport crates contain no protocol or operation code at all: a transport i
 
 It was a feature of `tesmart-proto` at first, which was wrong twice over. A feature that gates a thousand lines of self-contained code and removes no dependency is a crate boundary wearing a disguise. And the device side is not only a test double: it is `no_std` with one dependency, so a microcontroller running it answers `AA BB 03 11 XX EE` like the genuine article and software written for TESmart hardware drives it unchanged.
 
-The split costs one thing, worth naming: `MatrixCommand` and `AsciiCommand` are `#[non_exhaustive]`, so `tesmart-device` must end its matches with a wildcard and a command added to `tesmart-proto` will be silently ignored rather than failing to compile. The equivalent guarantee on the controller side is untouched, because `Request` and the profile tables live in one crate together — and that is the one that prevents the `0x03` family clash.
+The split costs one thing, worth naming: `MatrixCommand` and `AsciiCommand` are `#[non_exhaustive]`, so `tesmart-device` must end its matches with a wildcard and a command added to `tesmart-proto` will be silently ignored rather than failing to compile. The equivalent guarantee on the controller side is untouched, because `Request` and the command tables live in one crate together — and that is the one that prevents the `0x03` clash.
 
 ## tesmart-proto, bottom to top
 
@@ -72,28 +72,30 @@ The decoder is the load-bearing piece. The LAN port is a serial-to-Ethernet brid
 
 ### `command` — `Request` and `Response`
 
-Family-independent on purpose: the same `Switch(Port)` works on a 16x1 KVM, a dual-monitor one and an SDI switch. Which requests a given switch understands is decided by the profile.
+Protocol-independent on purpose: the same `Switch(Port)` works on a 16x1 KVM, a dual-monitor one and an SDI switch. Which requests a given switch understands is decided by the command table.
 
-### `profile` — one command table per family
+### `protocol` — one command table per protocol
 
-| Profile | Family | Devices |
+| `Protocol` | `CommandTable` | Devices |
 | --- | --- | --- |
-| `Kvm` | A | single-monitor KVMs |
-| `KvmDual` | A' | dual-monitor KVMs |
-| `Matrix` | B | HDMI matrices |
-| `Sdi` | C | the 4x1 SDI switch |
+| `kvm` | `KvmTable` | single-monitor KVMs |
+| `kvm-dual` | `KvmDualTable` | dual-monitor KVMs |
+| `matrix` | `MatrixTable` | HDMI matrices |
+| `sdi` | `SdiTable` | the 4x1 SDI switch |
 
-The trait is **sealed**, which is what lets every table be an exhaustive `match` and makes a new `Request` variant a compile error until all four families have decided what to do with it. A request outside the active profile is refused before a byte is sent, and the error says what the opcode would have done instead:
+`CommandTable` is the compile-time form — four zero-sized types, each a table of opcodes — and `Protocol` is the runtime tag naming one of them. The names in the left column are what `Protocol` parses, prints and serialises, and what `--protocol` takes, so there is one vocabulary from the CLI down to the wire.
 
-> `step-output is not available on the kvm profile: on single-monitor switches opcode 0x03 sets the front display timeout; use switch to choose a port`
+The trait is **sealed**, which is what lets every table be an exhaustive `match` and makes a new `Request` variant a compile error until all four protocols have decided what to do with it. A request outside the active protocol is refused before a byte is sent, and the error says what the opcode would have done instead:
 
-That message is the whole reason profiles exist.
+> `step-output is not available on the kvm protocol: on single-monitor switches opcode 0x03 sets the front display timeout; use switch to choose a port`
+
+That message is the whole reason the tables exist.
 
 ### `model` — the registry
 
-Maps a model name to a family, port counts and capability flags. A capability is `Documented`, `FieldTested`, `Unverified` or `Unsupported`, so a tool can say *why* it is about to try something, or refuse. Capability sets are named per protocol document (`archetype::MATRIX_LARGE`, `archetype::KVM_P23`) because thirty-odd models share eight distinct command sets, and spelling them out per row is how a row ends up disagreeing with its document.
+Maps a model name to a protocol, port counts and capability flags. A capability is `Documented`, `FieldTested`, `Unverified` or `Unsupported`, so a tool can say *why* it is about to try something, or refuse. Capability sets are named per protocol document (`archetype::MATRIX_LARGE`, `archetype::KVM_P23`) because thirty-odd models share eight distinct command sets, and spelling them out per row is how a row ends up disagreeing with its document.
 
-The family always has the last word: a capability claimed for a command the family lacks reads as `Unsupported`.
+The protocol always has the last word: a capability claimed for a command the protocol lacks reads as `Unsupported`.
 
 ### `engine` — the sans-IO request/response engine
 
@@ -105,7 +107,7 @@ Its interface is poll-based: `submit`, `poll_transmit`, `handle_input`, `poll_ev
 
 The counterpart to the engine, and the other end of the same wire: bytes in, bytes out, no IO, no clock. One dependency, `tesmart-proto`, so the `±1` port asymmetry and every opcode are defined once and read from both sides.
 
-`Device` dispatches by configured family into private `kvm` and `matrix` modules, and honours model capabilities — configured as a `DKS0401A30` it ignores a read-port request exactly as the real model does, which is what makes capability gating testable rather than theoretical.
+`Device` dispatches by configured protocol into private `kvm` and `matrix` modules, and honours model capabilities — configured as a `DKS0401A30` it ignores a read-port request exactly as the real model does, which is what makes capability gating testable rather than theoretical.
 
 `Faults` is what makes it a usable test double: split replies, non-`0xEE` terminators, missing replies, impossible port indexes, unsolicited reports, and a network write that is acknowledged but stored wrong. The faults are **counter-driven rather than random**, so a failing test fails the same way twice. Firmware would configure `Faults::NONE`.
 
@@ -123,7 +125,7 @@ It also derives the ASCII *scope* from the transport, so a matrix reached over R
 
 ### `Kvm` and `Matrix` — the operations
 
-Two types because they are two protocols. Both wrap a private `Ops`, which holds the session, the model spec, and the one thing both families share: the ASCII network channel.
+Two types because they are two protocols. Both wrap a private `Ops`, which holds the session, the model spec, and the one thing both protocols share: the ASCII network channel.
 
 | | KVM | Matrix |
 | --- | --- | --- |
@@ -132,7 +134,7 @@ Two types because they are two protocols. Both wrap a private `Ops`, which holds
 | Settings | write-only on every series | write-only |
 | Extras | `watch`, `probe_port_count` | presets, mirror, route-all |
 
-Matrix routing is the only write in any TESmart family whose effect can be confirmed. That asymmetry is visible in the return types: `RouteOutcome::Verified` carries the matrix's own report, while every KVM setting can do no better than `Sent`.
+Matrix routing is the only write in any TESmart protocol whose effect can be confirmed. That asymmetry is visible in the return types: `RouteOutcome::Verified` carries the matrix's own report, while every KVM setting can do no better than `Sent`.
 
 `probe_port_count` is the one deliberately invasive operation: no command reports the input count, so it switches through the inputs to find out, then restores the original. It is opt-in for that reason.
 

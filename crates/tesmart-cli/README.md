@@ -62,7 +62,7 @@ distinction, and the exit code says which:
 ## Which model?
 
 `-m` is required for anything that touches a switch, and is never guessed — the same opcode
-means different things across TESmart's protocol families, and `0x03` either sets a display
+means different things across TESmart's four protocols, and `0x03` either sets a display
 timeout or changes which computer you are looking at.
 
 ```sh
@@ -70,7 +70,7 @@ tesmart models list              # everything the registry knows
 tesmart models show HKS801-P23   # per-command support, and the evidence for it
 ```
 
-For a switch that is not in the registry, give `-f kvm --ports 8` instead. `tesmart probe` will
+For a switch that is not in the registry, give `-p kvm --ports 8` instead. `tesmart probe` will
 try the capabilities the registry is unsure about and report what actually worked.
 
 ## Licence

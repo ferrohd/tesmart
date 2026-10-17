@@ -2,20 +2,20 @@
 
 Oct 15, 2026 · @Alessandro · revised Oct 16, 2026
 
-## Scope: four protocol families
+## Scope: four incompatible protocols
 
-TESmart uses four incompatible control protocols, and the same opcode byte means different things across them. Identify your family before sending anything.
+TESmart uses four incompatible control protocols, and the same opcode byte means different things across them. Identify which one your device speaks before sending anything.
 
-| Family | Devices | Wire format | Example |
+| Protocol | Devices | Wire format | Example |
 | --- | --- | --- | --- |
-| A. Hex KVM | Single-monitor 4/8/16-port KVMs with RS232/LAN (HKS0801A\*, HKS1601A\*, HSW0801A\*, HSW1601A\*, HKE0802A10, DKS0401A30, HKS801-EB23, HKS1601-EB23, HKS801-P23, HKS1601-P23) | 6-byte binary frames | `AA BB 03 01 02 EE` |
-| A'. Hex KVM, dual-monitor | 4-port dual-monitor KVMs (community-documented) | Same framing, different opcodes from 0x03 up | `AA BB 03 03 01 EE` = "Output A input +1" |
-| B. Matrix ASCII | HDMI matrices (HMA0404\*, HME04\*, HMA0808\*, HMA1616\*) | ASCII strings | `MT00SW0102NT` |
-| C. SDI switch | The 4x1 SDI switch (SSW04010A10) | 4-byte binary, **no terminator** | `AA CC 01 02` |
+| `kvm` | Single-monitor 4/8/16-port KVMs with RS232/LAN (HKS0801A\*, HKS1601A\*, HSW0801A\*, HSW1601A\*, HKE0802A10, DKS0401A30, HKS801-EB23, HKS1601-EB23, HKS801-P23, HKS1601-P23) | 6-byte binary frames | `AA BB 03 01 02 EE` |
+| `kvm-dual` | 4-port dual-monitor KVMs (community-documented) | Same framing as `kvm`, different opcodes from 0x03 up | `AA BB 03 03 01 EE` = "Output A input +1" |
+| `matrix` | HDMI matrices (HMA0404\*, HME04\*, HMA0808\*, HMA1616\*) | ASCII strings | `MT00SW0102NT` |
+| `sdi` | The 4x1 SDI switch (SSW04010A10) | 4-byte binary, **no terminator** | `AA CC 01 02` |
 
-Family A also carries an ASCII side-channel for network settings (`IP:`, `PT:`, `GW:`, `MA:`), covered below. Models not listed here (for example HKS801-M24 / HKS401-M24, DKS203-M24, HKS801-L23, PKS0402A20, 8K60 HDMI 2.1) have no published protocol I could find; treat them as unverified until tested.
+`kvm` also carries an ASCII side-channel for network settings (`IP:`, `PT:`, `GW:`, `MA:`), covered below. Models not listed here (for example HKS801-M24 / HKS401-M24, DKS203-M24, HKS801-L23, PKS0402A20, 8K60 HDMI 2.1) have no published protocol I could find; treat them as unverified until tested.
 
-Rule of thumb for a CLI: make the family an explicit setting (`--family kvm|kvm-dual|matrix|sdi`), never auto-guess from the model name.
+Rule of thumb for a CLI: make the protocol an explicit setting (`--protocol kvm|kvm-dual|matrix|sdi`), never auto-guess from the model name.
 
 ### Official model-to-document mapping
 
@@ -37,7 +37,7 @@ Note that the EB23 and P23 series appear in **no** protocol document; their comm
 
 > **Reading the PDFs.** They are text-based but awkward to extract. `https://r.jina.ai/<pdf-url>` renders any of them to plain text, which is how every table here was transcribed and re-verified.
 
-## Family A: hex KVM protocol
+## The `kvm` protocol: hex frames
 
 Every command is 6 raw bytes, identical over RS232 and TCP; there is no checksum and no ACK beyond the read-port reply.
 
@@ -50,7 +50,7 @@ Every command is 6 raw bytes, identical over RS232 and TCP; there is no checksum
 | 4 | value | Argument (ignored on reads) |
 | 5 | `0xEE` | Terminator |
 
-**Transport defaults (all Family A docs agree)**
+**Transport defaults (all `kvm` documents agree)**
 
 | Setting | RS232 | LAN |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ Parity and flow control are stated explicitly in the P23 and EB23 manuals and in
 
 **Out-of-range writes are ignored.** A switch command naming a port the unit does not have changes nothing and is not acknowledged. That is a usable probe: switch to 16, 15, 14 … and read back; the first candidate that reads back as itself is the real input count. `krohrbaugh/teeheesmart` detects port counts this way.
 
-## Family A: commands by series
+## The `kvm` protocol: commands by series
 
 Only "switch input" is documented for every series; everything else depends on which TESmart PDF covers your model. "Doc" = in the official PDF or manual; "Field" = absent from that doc but sent by working community tools; blank = no evidence.
 
@@ -90,11 +90,11 @@ Notes per column:
 - **Write-only settings**: buzzer, display timeout and auto-detect cannot be read back on any series; only the active port and network settings can.
 - **Hotkeys and other out-of-band changes** (not protocol commands, but they matter): the port also changes via the front panel, the IR remote, hotkeys (Right-Ctrl twice then a digit; Scroll Lock after Right-Ctrl, Right-Ctrl, F1), and a double-click of the mouse wheel. Anything tracking the active port must expect it to move without having asked, which is what makes the unsolicited reports below worth listening for.
 
-## Family A': dual-monitor 4-port variant
+## The `kvm-dual` protocol: dual-monitor 4-port variant
 
-This variant reuses the Family A framing but redefines opcodes 0x03 and up. Sending a Family A "display timeout" (`0x03`) here steps output A's input instead. Source: [spuder/Tesmart-KVM](https://github.com/spuder/Tesmart-KVM), tested on TESmart's 4-port dual-monitor HDMI/USB-C 4K60 KVM over RS232 at 9600 baud. No official TESmart PDF covers it.
+This variant reuses the `kvm` framing but redefines opcodes 0x03 and up. Sending a `kvm` "display timeout" (`0x03`) here steps output A's input instead. Source: [spuder/Tesmart-KVM](https://github.com/spuder/Tesmart-KVM), tested on TESmart's 4-port dual-monitor HDMI/USB-C 4K60 KVM over RS232 at 9600 baud. No official TESmart PDF covers it.
 
-| Frame | Function | Clash with Family A |
+| Frame | Function | Clash with `kvm` |
 | --- | --- | --- |
 | `AA BB 03 01 0n EE` | Switch to PC n (1–4) | Same |
 | `AA BB 03 02 00 EE` / `… 02 01 EE` | Buzzer off / on | Same |
@@ -108,13 +108,13 @@ This variant reuses the Family A framing but redefines opcodes 0x03 and up. Send
 
 TESmart support told the author there is no exact equivalent of the Output A/B front buttons; the ±1 commands are the closest. No read command is documented for this variant.
 
-The 7-byte frame with `0x04` in byte 2 is why byte 2 is a length field. A parser should not hard-code 6-byte frames for this family.
+The 7-byte frame with `0x04` in byte 2 is why byte 2 is a length field. A parser should not hard-code 6-byte frames for this protocol.
 
 **`MM SS` is minutes and seconds.** The source lists the two bytes without naming them. The P23 and EB23 manuals describe the same auto-scan feature on the front panel as separate `[MIN]` and `[SEC]` settings, 0–59 each, minimum 5 s, default 15 s, "5 seconds to 1 hour" — which makes minutes-then-seconds the only reading consistent with the hardware. One discrepancy remains: the serial command's documented ceiling is `0x38` (56) per field, while the panel allows 59.
 
-## Family A: ASCII network-config commands
+## The `kvm` protocol: ASCII network-config commands
 
-On Family A KVMs, IP settings use plain ASCII on the same TCP socket, with no `AA BB` framing. None of this is in TESmart's protocol PDFs; it comes from packet captures of the official Windows controller ([bbeaudoin](https://github.com/bbeaudoin/bash/blob/master/tesmart/README.md)) and working tools ([pschmitt/tesmart.sh](https://github.com/pschmitt/tesmart.sh), [luborpetr/tesmart](https://github.com/luborpetr/tesmart), [SiirRandall/tesmart-ui](https://github.com/SiirRandall/tesmart-ui)).
+On single-monitor KVMs, IP settings use plain ASCII on the same TCP socket, with no `AA BB` framing. None of this is in TESmart's protocol PDFs; it comes from packet captures of the official Windows controller ([bbeaudoin](https://github.com/bbeaudoin/bash/blob/master/tesmart/README.md)) and working tools ([pschmitt/tesmart.sh](https://github.com/pschmitt/tesmart.sh), [luborpetr/tesmart](https://github.com/luborpetr/tesmart), [SiirRandall/tesmart-ui](https://github.com/SiirRandall/tesmart-ui)).
 
 | Purpose | Send | Reply |
 | --- | --- | --- |
@@ -154,7 +154,7 @@ Community reports of configuring IP over serial ([bbeaudoin](https://github.com/
 
 Matrices are the exception: TESmart documents their network commands for **both** transports, in two different spellings. See below.
 
-## Family B: matrix ASCII protocol (not for KVMs)
+## The `matrix` protocol: ASCII strings (not for KVMs)
 
 TESmart HDMI matrices use ASCII command strings on the same default address (192.168.1.10:5000, 9600 8N1), so a KVM tool pointed at a matrix will connect but do nothing useful. Sources: the 4x4 (RS232), 4x4 (RS232+IP), 8x8 and 16x16 protocol documents, all four transcribed.
 
@@ -169,7 +169,7 @@ TESmart HDMI matrices use ASCII command strings on the same default address (192
 | `MT00BZEN01NT` / `MT00BZEN00NT` | Buzzer **mute** / unmute |
 | `MT00CTXXXXNT` | Display timeout, 0000–9999 s (0000 = never) |
 
-### One family, four command sets
+### One protocol, four command sets
 
 The table above is the union. No matrix implements all of it, and the gaps do not nest:
 
@@ -184,7 +184,7 @@ So `MT00CT` and the preset/buzzer commands are mutually exclusive in practice. T
 
 ### Two traps
 
-**The buzzer is inverted.** On a matrix, `MT00BZEN01NT` *mutes*. On a KVM, `0x02` with `0x00` mutes. Both are printed that way in TESmart's own documents. Any code sharing a "buzzer on/off" value between the families must invert it in exactly one place.
+**The buzzer is inverted.** On a matrix, `MT00BZEN01NT` *mutes*. On a KVM, `0x02` with `0x00` mutes. Both are printed that way in TESmart's own documents. Any code sharing a "buzzer on/off" value between the two protocols must invert it in exactly one place.
 
 **`MT00RD` is two commands.** `MT00RD0000NT` reads the routing; `MT00RD01XXNT` loads preset XX. They differ by one character, and the second one changes what is on screen.
 
@@ -221,7 +221,7 @@ Three things to note. Queries all share the `MT8003` prefix, but the writes do n
 
 Power-cycling applies here too: "Turn off matrix and on again, and wait about 2 seconds", and "please do remember the modified IP settings" — there is no reset.
 
-## Family C: the SDI switch
+## The `sdi` protocol: the 4x1 SDI switch
 
 One model, one command. Source: [4x1 SDI switch protocol](https://support.tesmart.com/hc/en-us/article_attachments/10269851185433), 9600 8N1, parity none.
 
@@ -234,7 +234,7 @@ One model, one command. Source: [4x1 SDI switch protocol](https://support.tesmar
 
 Four bytes; header `AA CC` rather than `AA BB`; **no terminator** — nothing corresponds to the `0xEE` that ends a KVM frame. Whether the `01` is a length byte, as it is in `AA BB 03 …`, is not stated; since the document lists the four commands literally and defines nothing else, it is safest to treat the first three bytes as a fixed prefix.
 
-The switch reports nothing: no read command, no acknowledgement. Every command in this family is unverifiable by construction.
+The switch reports nothing: no read command, no acknowledgement. Every command in this protocol is unverifiable by construction.
 
 ## Transport behaviour and quirks
 
@@ -264,17 +264,17 @@ The lesson is for the decoder, not the mapping table: match frames by structure 
 
 ## Implementation notes for a CLI
 
-A robust client is a small stream parser plus a per-family command table; the six-byte happy path alone breaks on real hardware.
+A robust client is a small stream parser plus one command table per protocol; the six-byte happy path alone breaks on real hardware.
 
 1. **Transport layer**: one interface over TCP (default 192.168.1.10:5000) and serial (9600 8N1). Connect timeout about 5 s.
-2. **Command table keyed by family**: `kvm` (A) and `kvm-dual` (A') share 0x01/0x02 and diverge from 0x03. Refuse unknown opcodes per family instead of sending them.
-3. **Frame builder**: `AA BB <len> <op> <data…> EE` with `len = len(data) + 2` (0x03 for one data byte, 0x04 for two). Family C is not this shape at all.
+2. **Command table keyed by protocol**: `kvm` and `kvm-dual` share 0x01/0x02 and diverge from 0x03. Refuse unknown opcodes per protocol instead of sending them.
+3. **Frame builder**: `AA BB <len> <op> <data…> EE` with `len = len(data) + 2` (0x03 for one data byte, 0x04 for two). `sdi` is not this shape at all.
 4. **Reader**: buffer the stream; scan for `AA BB 03 11`, take the next byte as the 0-based port, skip one byte whatever it is. Treat anything else as ASCII until `;`, `END` or `OK`. Size the buffer for 88 bytes, not 48.
 5. **Switch flow**: optional read first (skip if already on target), send `AA BB 03 01 <n> EE`, wait 1 s, read back and compare with n−1. Retry the read a few times; fail loudly if it never matches.
 6. **Settings** (`buzzer`, `timeout`, `autodetect`): fire-and-forget. Print that the state cannot be verified.
 7. **Network commands**: send ASCII, read until `OK`, query all four values back, then tell the user to power-cycle. Require an explicit `--yes` before any set. On a matrix, pick the bare or `MT80xx` spelling from the transport.
 8. **Matrix routing is the one verifiable write**: `MT00RD0000NT` reports the whole table, so a route can actually be confirmed. Nothing a KVM sets can be.
-9. **Capabilities belong to the model, not the family**: within Family B alone there are four different command sets. Record what each model documents and refuse the rest before sending.
+9. **Capabilities belong to the model, not the protocol**: within `matrix` alone there are four different command sets. Record what each model documents and refuse the rest before sending.
 10. **Test without hardware**: a fake TCP server that answers `AA BB 03 10 00 EE` with `AA BB 03 11 <port> EE` covers most of the logic.
 
 Quick manual test from a shell:

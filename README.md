@@ -52,9 +52,9 @@ commands a KVM understands, only reading the active port and writing network set
 reply, and several models cannot even do the former. So operations return outcomes rather than
 `()`, and "the switch is on port 3" stays distinguishable from "port 3 was requested and nobody
 can say what happened". Matrices are the exception: they report their routing table, so a route
-is the one write in any family whose effect can be confirmed.
+is the one write in any of the four protocols whose effect can be confirmed.
 
-**Capabilities belong to the model, not the family.** Only "switch input" is documented for
+**Capabilities belong to the model, not the protocol.** Only "switch input" is documented for
 every TESmart series; everything else depends on which PDF covers your unit, and several
 commands are known to work only because community tools use them. The registry records that
 difference instead of flattening it — `documented`, `field-tested`, `unverified` or
@@ -62,7 +62,8 @@ difference instead of flattening it — `documented`, `field-tested`, `unverifie
 
 ## Protocols
 
-Four incompatible families, and the same opcode byte means different things across them.
+Four incompatible protocols — `kvm`, `kvm-dual`, `matrix` and `sdi` — and the same opcode byte
+means different things across them.
 Every opcode, quirk and capability flag cites its source: an official TESmart document, or a
 community tool observed to work.
 

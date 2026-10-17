@@ -33,17 +33,17 @@ former. So operations return outcomes rather than `()`, and "the switch is on po
 distinguishable from "port 3 was requested and nobody can say what happened".
 
 Matrices are the exception: they report their whole routing table, so `Matrix::route` is the one
-write in any TESmart family whose effect can actually be confirmed.
+write in any TESmart protocol whose effect can actually be confirmed.
 
 The crate also refuses commands that do not exist on the attached model, before any byte is
 sent, and says why:
 
 ```text
-step-output is not available on the kvm profile: on single-monitor switches opcode 0x03
+step-output is not available on the kvm protocol: on single-monitor switches opcode 0x03
 sets the front display timeout; use switch to choose a port
 ```
 
-That mistake is worth refusing: `0x03` sets a display timeout on one family and changes which
+That mistake is worth refusing: `0x03` sets a display timeout on one protocol and changes which
 computer you are looking at on another.
 
 ## Features

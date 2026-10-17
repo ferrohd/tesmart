@@ -41,14 +41,21 @@
 //!
 //! # Platforms
 //!
-//! Built and tested on Linux, macOS and Windows in CI, with one gap worth stating plainly.
+//! Stated precisely, because the levels of assurance differ:
 //!
-//! The end-to-end test that drives an emulated switch over a pseudo terminal runs on **Linux
-//! only**. Darwin rejects the line-speed ioctl on a pts with `ENOTTY`, and there is no Windows
-//! equivalent of a pts at all, so on those two the coverage is the build plus every test that
-//! does not need a real tty. Whether a genuine USB adapter works on macOS or Windows is
-//! therefore **unverified**: `tokio-serial` supports both, and nothing here can prove it without
-//! hardware on the runner.
+//! | Platform | Compiled | Tests run |
+//! | --- | --- | --- |
+//! | `x86_64-unknown-linux-gnu` | yes, and linked | **yes**, including over a pseudo terminal |
+//! | `aarch64-apple-darwin` | `cargo check`, and linked by the release build | no |
+//! | `x86_64-pc-windows-msvc` | `cargo check`, and linked by the release build | no |
+//!
+//! The end-to-end test that drives an emulated switch over a pseudo terminal is **Linux only**:
+//! Darwin rejects the line-speed ioctl on a pts with `ENOTTY`, and Windows has no equivalent of
+//! a pts at all. See `tests/pty.rs` for the detail, including why asking for speed `B0` instead
+//! is worse than failing.
+//!
+//! So macOS and Windows are known to compile and link, and are otherwise **unverified**. And no
+//! platform is tested against real hardware, on any runner.
 #![allow(clippy::must_use_candidate)]
 
 use core::fmt;

@@ -1,15 +1,18 @@
 [toolchain]
+# The single source of truth for which compiler everything uses: the editor, both dev shells
+# and CI all derive from this file via flake.nix.
 channel = "stable"
-components = [
-  "rustc",
-  "cargo",
-  "rustfmt",
-  "clippy",
-  # std sources — required for rust-analyzer to resolve `std`
-  "rust-src",
-  # pinned to this toolchain, overrides any rust-analyzer further down PATH
-  "rust-analyzer",
-]
+
+# No `components` key on purpose. The rustup `default` profile already provides rustc, cargo,
+# rustfmt and clippy, which is exactly what building and linting need. Anything beyond that is
+# specific to one shell and is added there instead, so that CI does not spend a download on
+# editor tooling:
+#
+#   rust-src       devShells.default, as an extension (rust-analyzer needs it to resolve std)
+#   rust-analyzer  devShells.default, from nixpkgs
+#
 # Bare-metal target with no std at all: building `tesmart-proto` for it is the proof that the
-# protocol core is genuinely sans-IO and allocation free.
+# protocol core is genuinely sans-IO and allocation free. Kept here rather than in a shell
+# because a developer building firmware locally wants it too. `devShells.ci` adds the
+# cross-compile-only targets on top.
 targets = ["thumbv7em-none-eabi"]

@@ -20,14 +20,30 @@ ci = "github"
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax).
 #
-# Every one of these builds on a native runner: ubuntu-22.04, macos-14 and windows-2022.
+# Every one builds on a native runner, so nothing here is cross-compiled: ubuntu-22.04,
+# ubuntu-22.04-arm, macos-14 and windows-2022. dist picks those itself, from
+# `github_runner_for_target`, which routes Linux + aarch64 to the ARM runner. No
+# `github-custom-runners` entry is needed, and GitHub's ARM runners are free on public repos.
 #
-# aarch64-unknown-linux-gnu is absent because it needs a cross linker and sysroot, and
-# `serialport` is platform FFI, so it is not something to discover is broken during a release.
-# x86_64-apple-darwin is absent because Intel Macs no longer justify a second macOS runner, and
-# this workspace has no target_arch conditionals at all, so aarch64-apple-darwin exercises every
-# darwin-specific code path there is.
-targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
+# An earlier version of this comment claimed aarch64-unknown-linux-gnu needed a cross linker and
+# sysroot. That was simply wrong: it is as native as the x86_64 build.
+#
+# Deliberately absent:
+#
+#   x86_64-apple-darwin      Intel Macs no longer justify a second macOS runner, and this
+#                            workspace has no target_arch conditionals at all, so the aarch64
+#                            build exercises every darwin-specific path there is.
+#   *-unknown-linux-musl     Would add a static binary for arbitrary or Alpine-based systems.
+#                            dist installs musl-tools for it automatically, so it is cheap to
+#                            add if anyone asks.
+#   armv7-*                  32-bit Pis. The only option here that genuinely needs
+#                            cross-compiling, since GitHub has no 32-bit ARM runner.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
 
 # release-plz owns the GitHub release: it publishes the crates, pushes the tag and creates the
 # release as a draft with the changelog as its body. dist then uploads the binaries into that

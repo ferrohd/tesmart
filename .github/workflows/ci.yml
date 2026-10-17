@@ -1,116 +1,271 @@
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [master]
-  pull_request:
   workflow_dispatch:
-  # Called by release-plz.yml. A release pull request is merged with the default GITHUB_TOKEN,
-  # which cannot trigger workflow runs, so the release job has to run this suite itself.
-  workflow_call:
+
+permissions:
+  contents: read
+
+# Supersede running jobs on a pull request, but never on master: master runs are what populate
+# the cache every pull request restores from, and a cancelled one also leaves the branch's status
+# ambiguous.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+
+  # Bypass rust-toolchain.toml. That file is for local development: it pins `channel = "stable"`
+  # and asks for rust-src and rust-analyzer, which every CI job would otherwise download for
+  # nothing. More importantly its channel pin overrides whatever toolchain a job installs, which
+  # is how the `msrv` job below came to be silently checking stable instead of 1.88. Components
+  # and targets come from the toolchain action instead, per job.
+  RUSTUP_TOOLCHAIN: stable
+
+  # Deliberately not RUSTFLAGS: -D warnings. Set globally that also compiles every dependency
+  # with -D warnings, failing on warnings we do not control, and it forks the build cache from
+  # every other invocation. [workspace.lints] already denies what matters (clippy::all,
+  # missing_docs, unsafe_code); clippy gets `-- -D warnings` to catch the `pedantic = warn` tier,
+  # and rustdoc gets RUSTDOCFLAGS in the one job that needs it.
+
+# Windows runners default to pwsh. One shell everywhere keeps the scripts below single-form.
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  lint:
-    name: fmt + clippy + docs
+  fmt:
+    name: fmt
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+          components: rustfmt
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --all-features
-      - run: cargo clippy --workspace --all-targets --no-default-features
-      - run: cargo doc --workspace --all-features --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
 
-  test:
-    name: test (${{ matrix.features }})
+  clippy:
+    name: clippy
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        features: [all-features, no-default-features, default]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo test
-        run: |
-          case "${{ matrix.features }}" in
-            all-features)        cargo test --workspace --all-features ;;
-            no-default-features) cargo test --workspace --no-default-features ;;
-            default)             cargo test --workspace ;;
-          esac
-
-  # One transport at a time. Every row is spelled `--no-default-features --features X`, because
-  # `--features X` alone leaves the default `tcp` on, which would mean the single-transport
-  # builds were never actually built.
-  #
-  # The facade is re-exports only, so these rows check that each transport's `pub use` resolves
-  # on its own, and that the crate is still coherent with no transport at all.
-  facade:
-    name: tesmart (${{ matrix.features }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - "--no-default-features"
-          - "--no-default-features --features tcp"
-          - "--no-default-features --features serial"
-          - "--no-default-features --features sim"
-          - "--all-features"
-    steps:
-      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy -p tesmart --all-targets ${{ matrix.features }}
-      - run: cargo test -p tesmart ${{ matrix.features }}
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - name: all features
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: no default features
+        run: cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
 
-  # There is deliberately no matrix for `tesmart-cli`: it has no features, so every build of it
-  # is the same build, already covered by the workspace jobs above.
-  #
-  # Note that those workspace jobs never build the facade with no transport, because the tool
-  # asks for `tcp`, `serial` and `sim` explicitly and feature unification applies that to the
-  # whole graph. The matrix above is the only place the trimmed facade is compiled at all.
-
-  # release-plz does the publishing, in dependency order, when a release PR merges. This job is
-  # the pre-flight: it catches the traps on the pull request that introduces them rather than
-  # halfway through a release, when some crates are already on the registry and cannot be taken
-  # back. Metadata crates.io rejects, a missing file, a dev-dependency that deadlocks.
-  #
-  # Only `tesmart-proto` can be packaged for real before the first release: `cargo package`
-  # resolves regular dependencies against the registry even with `--no-verify`, so every crate
-  # above the graph root fails with "no matching package" until the one below it is published.
-  # `--list` does the manifest rewrite without resolving, which is the part worth checking.
-  package:
-    name: cargo package
+  doc:
+    name: doc
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # --cfg docsrs matches what docs.rs itself builds, since the facade sets
+      # [package.metadata.docs.rs] all-features = true.
+      RUSTDOCFLAGS: -D warnings --cfg docsrs
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo doc --workspace --all-features --no-deps --locked
+
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux carries the feature combinations, because they are free there.
+          - { name: "linux, all features", os: ubuntu-latest, features: --all-features }
+          - { name: "linux, default features", os: ubuntu-latest, features: "" }
+          - { name: "linux, no default features", os: ubuntu-latest, features: --no-default-features }
+          # macOS is not redundant: tests/pty.rs is #![cfg(unix)] and contains a macOS-only
+          # branch (baud 0 to skip the speed ioctl on a pty) that has never been executed.
+          - { name: macos, os: macos-latest, features: --all-features }
+          # Windows exercises the serialport/tokio-serial build that tesmart-serial's own docs
+          # describe as untested, plus the COM-port target parsing.
+          - { name: windows, os: windows-latest, features: --all-features }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo test --workspace --locked ${{ matrix.features }}
+
+  features:
+    name: feature combinations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - uses: taiki-e/install-action@cargo-hack
+      # Exhaustive, and it maintains itself: adding a feature to any crate extends the sweep
+      # without touching this file. The hand-written matrix this replaced covered 5 of the
+      # facade's 24 combinations.
+      - name: every feature on its own
+        run: cargo hack clippy --each-feature --workspace --all-targets --locked -- -D warnings
+      - name: every combination, for the crate that has several
+        run: cargo hack clippy --feature-powerset -p tesmart --all-targets --locked -- -D warnings
+
+  no-std:
+    name: no_std build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Named here rather than relied on from rust-toolchain.toml, which RUSTUP_TOOLCHAIN
+          # bypasses.
+          targets: thumbv7em-none-eabi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      # Both halves of the protocol claim to be sans-IO and allocation free. A bare-metal target
+      # with no std at all is the only honest way to check that claim. The tesmart-device build
+      # is load-bearing, not decorative: the whole reason the switch side is its own crate rather
+      # than a feature of tesmart-proto is that it can run as firmware.
+      - name: the controller side
+        run: cargo build -p tesmart-proto --target thumbv7em-none-eabi --locked
+      - name: the controller side, with serde
+        run: cargo build -p tesmart-proto --features serde --target thumbv7em-none-eabi --locked
+      - name: the switch side
+        run: cargo build -p tesmart-device --target thumbv7em-none-eabi --locked
+
+  msrv:
+    name: minimum supported Rust version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: read rust-version from the workspace manifest
+        id: msrv
+        run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      # Without this the job is worthless and looks fine. rust-toolchain.toml pins
+      # channel = "stable", and the rustup shim honours that file over the toolchain installed
+      # above, so this job used to check stable while claiming to check the MSRV. RUSTUP_TOOLCHAIN
+      # overrides the file; this step is what proves it still does.
+      - name: the toolchain really is the MSRV
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.version }}
+        run: |
+          want='${{ steps.msrv.outputs.version }}'
+          got=$(rustc --version | cut -d' ' -f2)
+          echo "manifest says $want, rustc reports $got"
+          case "$got" in
+            "$want" | "$want".*) ;;
+            *)
+              echo "::error::rustc is $got but rust-version is $want; the toolchain override is not taking effect"
+              exit 1
+              ;;
+          esac
+      # --locked matters here beyond reproducibility: without it cargo may resolve a dependency
+      # version that has raised its own MSRV, and the job would fail for a reason unrelated to
+      # this workspace.
+      - name: check
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.version }}
+        run: cargo check --workspace --all-features --all-targets --locked
+
+  proptest:
+    name: extended property tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROPTEST_CASES: "8192"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      # The decoder is the component most exposed to malformed input, so it gets a longer run
+      # than the default 256 cases.
+      - name: decoder
+        run: cargo test -p tesmart-proto --all-features --test decoder --locked
+      # Engine against device: the test that would catch an inverted ±1, a length byte computed
+      # from the wrong end, or a retry budget that cannot survive a dropped reply.
+      - name: engine against device
+        run: cargo test -p tesmart-device --test roundtrip --locked
+
+  publish:
+    name: publish preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      # release-plz does the publishing, in dependency order, when a release pull request merges.
+      # This job is the pre-flight: it catches the traps on the pull request that introduces them
+      # rather than halfway through a release, when some crates are already on the registry and
+      # cannot be taken back.
+      #
+      # Only tesmart-proto can be packaged for real before the first release: cargo package
+      # resolves regular dependencies against the registry, so every crate above the graph root
+      # fails with "no matching package" until the one below it is published. --list does the
+      # manifest rewrite without resolving, which is the part worth checking.
       - name: the graph root packages for real
-        run: cargo package -p tesmart-proto --allow-dirty
+        run: cargo package -p tesmart-proto --locked
       - name: every crate produces a valid package listing
         run: |
           for crate in tesmart-device tesmart-client tesmart-tcp tesmart-serial tesmart-sim tesmart tesmart-cli; do
             echo "::group::$crate"
-            cargo package -p "$crate" --list --allow-dirty
+            cargo package -p "$crate" --list --locked
             echo "::endgroup::"
           done
       - name: the cyclic dev-dependency carries no version
         # tesmart-sim depends on tesmart-client, so a versioned dev-dependency would have to be
-        # published before the crate it depends on. Cargo drops a version-less one instead.
+        # published before the crate it depends on. Cargo drops a version-less one instead, which
+        # is why deny.toml also sets allow-wildcard-paths.
         run: |
           for crate in tesmart-client tesmart-tcp tesmart-serial; do
             if grep -E '^tesmart-sim *= *\{[^}]*version' "crates/$crate/Cargo.toml"; then
@@ -119,56 +274,64 @@ jobs:
             fi
           done
 
-  # Both halves of the protocol claim to be sans-IO and allocation free. A bare-metal target
-  # with no `std` at all is the only honest way to check that claim.
-  #
-  # The `tesmart-device` build is load-bearing, not decorative: the whole reason the switch side
-  # is its own crate rather than a feature of `tesmart-proto` is that it can run as firmware.
-  # If this step is ever dropped, that claim quietly stops being true.
-  no-std:
-    name: no_std build
+  deny:
+    name: supply chain
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: thumbv7em-none-eabi
-      - uses: Swatinem/rust-cache@v2
-      - name: the controller side
-        run: cargo build -p tesmart-proto --target thumbv7em-none-eabi
-      - name: the controller side, with serde
-        run: cargo build -p tesmart-proto --features serde --target thumbv7em-none-eabi
-      - name: the switch side
-        run: cargo build -p tesmart-device --target thumbv7em-none-eabi
-
-  msrv:
-    name: minimum supported Rust version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: read rust-version from the workspace manifest
-        id: msrv
-        run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+          persist-credentials: false
+      # advisories, licences, duplicate versions and source registries. Policy and the reasoning
+      # behind each exception live in deny.toml.
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          toolchain: ${{ steps.msrv.outputs.version }}
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-features --all-targets
+          command: check advisories bans licenses sources
 
-  # The decoder is the component most exposed to malformed input, so it gets a longer run of the
-  # property tests than the default 256 cases.
-  proptest:
-    name: extended property tests
+  dist:
+    name: release packaging plan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p tesmart-proto --all-features --test decoder
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-dist
+      # The release workflow is generated from dist-workspace.toml. If the two drift, releases
+      # quietly use the stale workflow, so the generated file is checked in and verified here.
+      - name: the generated release workflow is current
+        run: dist generate --check
+      - name: the release plan resolves
+        run: dist plan
+
+  pr-title:
+    name: pull request title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      # Squash merge makes the pull request title the commit message on master, and
+      # release-plz.toml derives the changelog from these prefixes. An unrecognised one would
+      # land the change under "Other" instead of failing, so it is checked here.
+      - uses: amannn/action-semantic-pull-request@v6
         env:
-          PROPTEST_CASES: "8192"
-      # Engine against device: the test that would catch an inverted ±1, a length byte computed
-      # from the wrong end, or a retry budget that cannot survive a dropped reply.
-      - run: cargo test -p tesmart-device --test roundtrip
-        env:
-          PROPTEST_CASES: "8192"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            ci
+            build
+            chore
+            style
+            revert
+          requireScope: false

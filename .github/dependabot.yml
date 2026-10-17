@@ -1,0 +1,35 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+    open-pull-requests-limit: 5
+    # `chore(deps)` is matched by a commit parser in release-plz.toml and lands under
+    # "Dependencies" in the changelog. Any other prefix would fall through to "Other".
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+    groups:
+      # One pull request for the lot, rather than one per crate. Partial bumps are what leave two
+      # versions of the same crate in the graph, and deny.toml sets multiple-versions = "deny",
+      # so a drip of individual pull requests would each have to be merged in the right order to
+      # stay green. Updating together keeps the graph consistent.
+      cargo:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - dependencies

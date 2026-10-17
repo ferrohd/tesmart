@@ -1,0 +1,20 @@
+# Test runner configuration. CI runs `cargo nextest run --profile ci`.
+#
+# The reason this exists: five of the six pseudo terminal tests once hung forever on macOS, on a
+# write to a line that termios had hung up. `cargo test` has no per-test timeout, so the job sat
+# there until the workflow's 25-minute limit killed it and reported nothing useful. nextest runs
+# each test in its own process, which makes a timeout enforceable.
+
+[profile.ci]
+# Two minutes, then the test is killed and reported by name. Nothing here legitimately takes
+# that long: the whole suite is seconds. The extended property tests are deliberately slower,
+# which is why they run in a separate job under plain `cargo test` rather than here.
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+# Report every failure in one run rather than stopping at the first. A platform-specific problem
+# usually hits several tests at once, and seeing all of them is what identified the pattern
+# behind the macOS hang: every test that wrote a command stalled, the one that only read passed.
+fail-fast = false
+
+# Retries are deliberately absent. This suite drives an in-process emulator with counter-driven
+# faults, so a flaky result is a bug to investigate, not something to paper over.

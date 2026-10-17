@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -79,7 +79,7 @@ jobs:
       # [package.metadata.docs.rs] all-features = true.
       RUSTDOCFLAGS: -D warnings --cfg docsrs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -107,21 +107,31 @@ jobs:
           # describe as untested, plus the COM-port target parsing.
           - { name: windows, os: windows-latest, features: --all-features }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - run: cargo test --workspace --locked ${{ matrix.features }}
+      - uses: taiki-e/install-action@nextest
+      # nextest rather than `cargo test`, for the per-test timeout in .config/nextest.toml.
+      # `cargo test` has none, so a test that blocks forever takes the whole job down with it and
+      # reports nothing: five of the pseudo terminal tests once stalled a macOS runner until the
+      # workflow limit killed it. Each test gets its own process here, so a hang is killed at two
+      # minutes and named.
+      - name: test
+        run: cargo nextest run --workspace --locked ${{ matrix.features }} --profile ci
+      # nextest does not run doctests, so they need their own pass.
+      - name: doctests
+        run: cargo test --doc --workspace --locked ${{ matrix.features }}
 
   features:
     name: feature combinations
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -144,7 +154,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -171,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: read rust-version from the workspace manifest
@@ -216,7 +226,7 @@ jobs:
     env:
       PROPTEST_CASES: "8192"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -237,7 +247,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -279,7 +289,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       # advisories, licences, duplicate versions and source registries. Policy and the reasoning
@@ -293,7 +303,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable

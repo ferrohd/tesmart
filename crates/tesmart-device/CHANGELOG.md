@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/ferrohd/tesmart/compare/tesmart-device-v0.1.1...tesmart-device-v0.2.0) - 2026-10-17
+
+### Changed
+
+- [**breaking**] name the protocol once, and drop the A/B/C letters
+
 ## [0.1.0](https://github.com/ferrohd/tesmart/releases/tag/tesmart-device-v0.1.0) - 2026-10-17
 
 ### Added

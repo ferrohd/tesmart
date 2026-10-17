@@ -63,3 +63,16 @@ missing_docs = "deny"
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+
+# `tesmart-device` takes over seven minutes to compile at opt-level 3 and about one second at
+# opt-level 2 — the cliff is entirely between those two levels. The cause is `core::fmt`:
+# `encode_link_reply` calls `write_fmt(format_args!(..))` inside a loop over up to sixteen
+# routing pairs, and at opt-level 3 LLVM inlines the whole formatting machinery into that loop
+# and then tries to unroll it.
+#
+# Capping the level costs nothing here. This crate is a protocol state machine answering a
+# 9600-baud serial line: it is I/O bound by four orders of magnitude, so the difference between
+# opt-level 2 and 3 is unmeasurable. Set on `release`, so any profile inheriting from it is
+# covered as well.
+[profile.release.package.tesmart-device]
+opt-level = 2

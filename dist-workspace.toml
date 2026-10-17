@@ -8,8 +8,12 @@ members = ["cargo:."]
 # verified by the `dist` job in ci.yml. Edit this file and re-run `dist generate`, never the
 # workflow directly.
 [dist]
-# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.33.0"
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax).
+#
+# 0.32.0, not 0.33.0: 0.33.0 exists as a GitHub release but was never published to crates.io, so
+# `taiki-e/install-action` resolves 0.32.0 and `dist generate --check` fails on the mismatch.
+# Keep this at a version that is actually installable, and regenerate with the same one.
+cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app

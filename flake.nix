@@ -35,6 +35,7 @@
             "thumbv7em-none-eabi"
             "x86_64-pc-windows-msvc"
             "aarch64-apple-darwin"
+            "aarch64-unknown-linux-gnu"
           ];
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 

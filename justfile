@@ -58,11 +58,16 @@ features:
 # be sans-IO and allocation free, and the whole reason the switch side is its own crate rather
 # than a feature of tesmart-proto is that it can run as firmware.
 #
-# The other two are the platforms we ship binaries for but run no tests on. `check` rather than
-# `build`, because linking either from here would need the MSVC import libraries or the Apple
-# SDK. It still catches the class of error that took Windows down once already: tokio-serial
-# gates set_exclusive behind #[cfg(unix)], and calling it unconditionally is an E0599 that no
-# amount of testing on Linux reveals.
+# The other three are the platforms we ship binaries for but run no tests on. `check` rather
+# than `build`: linking the first two from here would need the MSVC import libraries or the
+# Apple SDK, and `check` is enough to catch the class of error that took Windows down once
+# already — tokio-serial gates set_exclusive behind #[cfg(unix)], and calling it unconditionally
+# is an E0599 that no amount of testing on Linux reveals.
+#
+# aarch64-unknown-linux-gnu is here for consistency rather than because it is likely to break:
+# it is the same OS as the host, there are no target_arch conditionals anywhere in the
+# workspace, and dist builds and links it natively on every pull request. It is the cheapest
+# possible way to keep "everything we ship is compile-checked" literally true.
 [doc('bare-metal builds, and cross-checks for the shipped platforms')]
 targets:
     cargo build -p tesmart-proto --target thumbv7em-none-eabi --locked
@@ -70,6 +75,7 @@ targets:
     cargo build -p tesmart-device --target thumbv7em-none-eabi --locked
     cargo check --workspace --all-features --all-targets --locked --target x86_64-pc-windows-msvc
     cargo check --workspace --all-features --all-targets --locked --target aarch64-apple-darwin
+    cargo check --workspace --all-features --all-targets --locked --target aarch64-unknown-linux-gnu
 
 # Run me in devShells.msrv, which pins the compiler to Cargo.toml's rust-version:
 #   nix develop .#msrv --command just msrv

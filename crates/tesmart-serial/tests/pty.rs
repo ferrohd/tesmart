@@ -20,10 +20,11 @@ fn port(n: u8) -> Port {
     Port::new(n).unwrap()
 }
 
-/// macOS needs baud 0 to skip the speed ioctl on a pty; Linux accepts a real rate.
-const fn pty_baud() -> u32 {
-    if cfg!(target_os = "macos") { 0 } else { 9600 }
-}
+// A pts takes the same 9600 as real hardware, on every Unix. This used to pass baud 0 on macOS,
+// on the theory that it told the driver to skip the speed ioctl. It does not: in termios `B0`
+// means hang up the line. The port still opened and still delivered bytes the emulator wrote,
+// so the one test that only listens passed, while all five that send a command hung forever on
+// a write that went nowhere.
 
 /// The client's end of a pseudo terminal, kept open for the duration of a test.
 ///
@@ -71,7 +72,7 @@ fn switch_on_a_pty(faults: Faults) -> (Simulator, Pty, tokio::task::JoinHandle<(
 }
 
 fn kvm(path: &str) -> Kvm<SerialConnector> {
-    Kvm::builder(SerialConnector::new(path).with_baud(pty_baud()))
+    Kvm::builder(SerialConnector::new(path))
         .model(model::lookup("HKS1601-EB23").unwrap())
         // The real defaults space commands a second apart and wait another second before
         // reading a port back. Both are tested where they belong, in `tesmart-client`; these
@@ -162,7 +163,7 @@ async fn a_port_claimed_exclusively_cannot_be_opened_twice() {
     first.switch(port(3)).await.unwrap();
     assert!(first.session().is_connected());
 
-    let second = SerialConnector::new(pty.path()).with_baud(pty_baud());
+    let second = SerialConnector::new(pty.path());
     let result = tesmart_client::Connector::connect(&second).await;
 
     // Best effort: exclusivity on a pts is not something to hang the suite on, but if it is

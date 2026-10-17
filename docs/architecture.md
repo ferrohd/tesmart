@@ -19,11 +19,11 @@ graph TD
     CLI[tesmart-cli<br/>args, target strings, output, exit codes] --> FACADE[tesmart<br/>re-exports]
     FACADE --> CLIENT[tesmart-client<br/>async driver + operations]
     FACADE --> TCP[tesmart-tcp]
-    FACADE --> SER[tesmart-serial]
+    FACADE --> SERIAL[tesmart-serial]
     FACADE --> SIM[tesmart-sim]
     CLIENT --> PROTO[tesmart-proto<br/>the controller side]
     TCP --> CLIENT
-    SER --> CLIENT
+    SERIAL --> CLIENT
     SIM --> CLIENT
     SIM --> DEV[tesmart-device<br/>the switch side]
     DEV --> PROTO

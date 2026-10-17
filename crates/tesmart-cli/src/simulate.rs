@@ -13,7 +13,7 @@ use crate::report::{DoneView, Report};
 ///
 /// # Errors
 ///
-/// [`CliError::Usage`] for an unknown model or an unparseable terminator, [`CliError::Io`] if
+/// [`CliError::Usage`] for an unknown model or an unparsable terminator, [`CliError::Io`] if
 /// the address cannot be bound.
 pub async fn serve(args: &SimServeArgs, printer: &Printer) -> Result<Report, CliError> {
     let model = model::lookup(&args.model).ok_or_else(|| {

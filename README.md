@@ -88,6 +88,6 @@ AGPL-3.0-or-later. See [LICENSE](LICENSE).
 
 For commercial licensing options (use without AGPL obligations), contact the project maintainer.
 
-## Disclamer
+## Disclaimer
 
 This project is not affiliated with [TESmart](https://tesmart.com/). It is an independent, community-developed library.

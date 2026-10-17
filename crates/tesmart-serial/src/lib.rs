@@ -46,6 +46,7 @@
 //! | Platform | Compiled | Tests run |
 //! | --- | --- | --- |
 //! | `x86_64-unknown-linux-gnu` | yes, and linked | **yes**, including over a pseudo terminal |
+//! | `aarch64-unknown-linux-gnu` | `cargo check`, and linked by the release build | no |
 //! | `aarch64-apple-darwin` | `cargo check`, and linked by the release build | no |
 //! | `x86_64-pc-windows-msvc` | `cargo check`, and linked by the release build | no |
 //!
@@ -54,8 +55,11 @@
 //! a pts at all. See `tests/pty.rs` for the detail, including why asking for speed `B0` instead
 //! is worse than failing.
 //!
-//! So macOS and Windows are known to compile and link, and are otherwise **unverified**. And no
-//! platform is tested against real hardware, on any runner.
+//! The two ARM64 rows are not equally uncertain. `aarch64-unknown-linux-gnu` runs the same code
+//! as the tested row — same OS, same `termios` calls, and this crate has no `target_arch`
+//! conditionals — so only the instruction set differs. macOS and Windows take genuinely
+//! different code paths inside `tokio-serial`, and are known to compile and link but are
+//! otherwise **unverified**. No platform is tested against real hardware, on any runner.
 #![allow(clippy::must_use_candidate)]
 
 use core::fmt;

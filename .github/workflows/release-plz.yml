@@ -36,7 +36,13 @@ jobs:
           # It would only be needed here if we signed tags or ran `git push` ourselves.
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # release-plz shells out to `cargo publish`, so it needs a toolchain on PATH. Taking the
+      # pinned one from the flake means releases are built with the same compiler CI checked
+      # with, rather than whatever stable happens to be on the day.
+      - name: Put the pinned toolchain on PATH
+        run: nix develop .#ci --command bash -c 'command -v cargo | xargs dirname' >> "$GITHUB_PATH"
 
       - name: Release
         uses: release-plz/action@v0.5
@@ -69,7 +75,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # release-plz shells out to `cargo publish`, so it needs a toolchain on PATH. Taking the
+      # pinned one from the flake means releases are built with the same compiler CI checked
+      # with, rather than whatever stable happens to be on the day.
+      - name: Put the pinned toolchain on PATH
+        run: nix develop .#ci --command bash -c 'command -v cargo | xargs dirname' >> "$GITHUB_PATH"
 
       - name: Release PR
         uses: release-plz/action@v0.5

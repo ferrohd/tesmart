@@ -16,306 +16,83 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  CARGO_TERM_COLOR: always
-
-  # Bypass rust-toolchain.toml. That file is for local development: it pins `channel = "stable"`
-  # and asks for rust-src and rust-analyzer, which every CI job would otherwise download for
-  # nothing. More importantly its channel pin overrides whatever toolchain a job installs, which
-  # is how the `msrv` job below came to be silently checking stable instead of 1.88. Components
-  # and targets come from the toolchain action instead, per job.
-  RUSTUP_TOOLCHAIN: stable
-
-  # Deliberately not RUSTFLAGS: -D warnings. Set globally that also compiles every dependency
-  # with -D warnings, failing on warnings we do not control, and it forks the build cache from
-  # every other invocation. [workspace.lints] already denies what matters (clippy::all,
-  # missing_docs, unsafe_code); clippy gets `-- -D warnings` to catch the `pedantic = warn` tier,
-  # and rustdoc gets RUSTDOCFLAGS in the one job that needs it.
-
-# Windows runners default to pwsh. One shell everywhere keeps the scripts below single-form.
-defaults:
-  run:
-    shell: bash
+# Every job is the same four steps against a different subcommand of ci/run.sh, which is also
+# what a developer runs locally:
+#
+#   nix develop .#ci --command ci/run.sh <subcommand>
+#
+# The toolchain, its targets and every tool come from flake.nix, pinned by flake.lock, so there
+# is no `with: toolchain:` or install-action anywhere to drift from what is used locally.
+#
+# All of it runs on ubuntu-latest. The two platforms we ship binaries for but cannot run tests on
+# are reached by `cargo check --target` in the `targets` job, and dist's own generated workflow
+# builds and links all three on native runners for every pull request.
 
 jobs:
-  fmt:
-    name: fmt
+  checks:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all --check
-
-  clippy:
-    name: clippy
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-      - name: all features
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - name: no default features
-        run: cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
-
-  doc:
-    name: doc
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      # --cfg docsrs matches what docs.rs itself builds, since the facade sets
-      # [package.metadata.docs.rs] all-features = true.
-      RUSTDOCFLAGS: -D warnings --cfg docsrs
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-      - run: cargo doc --workspace --all-features --no-deps --locked
-
-  test:
-    name: test (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux carries the feature combinations, because they are free there.
-          - { name: "linux, all features", os: ubuntu-latest, features: --all-features }
-          - { name: "linux, default features", os: ubuntu-latest, features: "" }
-          - { name: "linux, no default features", os: ubuntu-latest, features: --no-default-features }
-          # macOS is not redundant: tests/pty.rs is #![cfg(unix)] and contains a macOS-only
-          # branch (baud 0 to skip the speed ioctl on a pty) that has never been executed.
-          - { name: macos, os: macos-latest, features: --all-features }
-          # Windows exercises the serialport/tokio-serial build that tesmart-serial's own docs
-          # describe as untested, plus the COM-port target parsing.
-          - { name: windows, os: windows-latest, features: --all-features }
+          - { name: fmt, job: fmt }
+          - { name: clippy, job: clippy }
+          - { name: doc, job: doc }
+          - { name: "test (all features)", job: test, args: --all-features }
+          - { name: "test (default features)", job: test }
+          - { name: "test (no default features)", job: test, args: --no-default-features }
+          - { name: feature combinations, job: features }
+          # Bare-metal builds, plus cross-checks for the shipped platforms we never run.
+          - { name: other targets, job: targets }
+          - { name: extended property tests, job: proptest }
+          - { name: publish preflight, job: publish }
+          - { name: supply chain, job: deny }
+          - { name: release packaging plan, job: dist }
+          - { name: workflow lint, job: workflows }
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # Swatinem/rust-cache shells out to rustc to build its cache key, and the toolchain only
+      # exists inside the dev shell, so it needs to be reachable from the job too.
+      - name: Put the pinned toolchain on PATH
+        run: nix develop .#ci --command bash -c 'command -v cargo | xargs dirname' >> "$GITHUB_PATH"
+
       - uses: Swatinem/rust-cache@v2
         with:
+          # One cache per job, and only master writes, so pull requests cannot evict each other.
+          shared-key: ${{ matrix.job }}${{ matrix.args }}
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - uses: taiki-e/install-action@nextest
-      # nextest rather than `cargo test`, for the per-test timeout in .config/nextest.toml.
-      # `cargo test` has none, so a test that blocks forever takes the whole job down with it and
-      # reports nothing: five of the pseudo terminal tests once stalled a macOS runner until the
-      # workflow limit killed it. Each test gets its own process here, so a hang is killed at two
-      # minutes and named.
-      - name: test
-        run: cargo nextest run --workspace --locked ${{ matrix.features }} --profile ci
-      # nextest does not run doctests, so they need their own pass.
-      - name: doctests
-        run: cargo test --doc --workspace --locked ${{ matrix.features }}
 
-  features:
-    name: feature combinations
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-      - uses: taiki-e/install-action@cargo-hack
-      # Exhaustive, and it maintains itself: adding a feature to any crate extends the sweep
-      # without touching this file. The hand-written matrix this replaced covered 5 of the
-      # facade's 24 combinations.
-      - name: every feature on its own
-        run: cargo hack clippy --each-feature --workspace --all-targets --locked -- -D warnings
-      - name: every combination, for the crate that has several
-        run: cargo hack clippy --feature-powerset -p tesmart --all-targets --locked -- -D warnings
+      - run: nix develop .#ci --command ci/run.sh ${{ matrix.job }} ${{ matrix.args }}
 
-  no-std:
-    name: no_std build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          # Named here rather than relied on from rust-toolchain.toml, which RUSTUP_TOOLCHAIN
-          # bypasses.
-          targets: thumbv7em-none-eabi
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-      # Both halves of the protocol claim to be sans-IO and allocation free. A bare-metal target
-      # with no std at all is the only honest way to check that claim. The tesmart-device build
-      # is load-bearing, not decorative: the whole reason the switch side is its own crate rather
-      # than a feature of tesmart-proto is that it can run as firmware.
-      - name: the controller side
-        run: cargo build -p tesmart-proto --target thumbv7em-none-eabi --locked
-      - name: the controller side, with serde
-        run: cargo build -p tesmart-proto --features serde --target thumbv7em-none-eabi --locked
-      - name: the switch side
-        run: cargo build -p tesmart-device --target thumbv7em-none-eabi --locked
-
+  # Separate because it is the one job that does not use the pinned stable toolchain: the shell
+  # provides a compiler matching Cargo.toml's rust-version instead.
+  #
+  # This used to be a stable toolchain with RUSTUP_TOOLCHAIN pointed at 1.88 and a step asserting
+  # the override had taken effect, because rust-toolchain.toml's channel silently won otherwise.
+  # There is no rustup shim here, so the toolchain is simply the one the shell contains.
   msrv:
     name: minimum supported Rust version
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: read rust-version from the workspace manifest
-        id: msrv
-        run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Put the MSRV toolchain on PATH
+        run: nix develop .#msrv --command bash -c 'command -v cargo | xargs dirname' >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@v2
         with:
+          shared-key: msrv
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      # Without this the job is worthless and looks fine. rust-toolchain.toml pins
-      # channel = "stable", and the rustup shim honours that file over the toolchain installed
-      # above, so this job used to check stable while claiming to check the MSRV. RUSTUP_TOOLCHAIN
-      # overrides the file; this step is what proves it still does.
-      - name: the toolchain really is the MSRV
-        env:
-          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.version }}
-        run: |
-          want='${{ steps.msrv.outputs.version }}'
-          got=$(rustc --version | cut -d' ' -f2)
-          echo "manifest says $want, rustc reports $got"
-          case "$got" in
-            "$want" | "$want".*) ;;
-            *)
-              echo "::error::rustc is $got but rust-version is $want; the toolchain override is not taking effect"
-              exit 1
-              ;;
-          esac
-      # --locked matters here beyond reproducibility: without it cargo may resolve a dependency
-      # version that has raised its own MSRV, and the job would fail for a reason unrelated to
-      # this workspace.
-      - name: check
-        env:
-          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.version }}
-        run: cargo check --workspace --all-features --all-targets --locked
-
-  proptest:
-    name: extended property tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      PROPTEST_CASES: "8192"
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-      # The decoder is the component most exposed to malformed input, so it gets a longer run
-      # than the default 256 cases.
-      - name: decoder
-        run: cargo test -p tesmart-proto --all-features --test decoder --locked
-      # Engine against device: the test that would catch an inverted ±1, a length byte computed
-      # from the wrong end, or a retry budget that cannot survive a dropped reply.
-      - name: engine against device
-        run: cargo test -p tesmart-device --test roundtrip --locked
-
-  publish:
-    name: publish preflight
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-      # release-plz does the publishing, in dependency order, when a release pull request merges.
-      # This job is the pre-flight: it catches the traps on the pull request that introduces them
-      # rather than halfway through a release, when some crates are already on the registry and
-      # cannot be taken back.
-      #
-      # Only tesmart-proto can be packaged for real before the first release: cargo package
-      # resolves regular dependencies against the registry, so every crate above the graph root
-      # fails with "no matching package" until the one below it is published. --list does the
-      # manifest rewrite without resolving, which is the part worth checking.
-      - name: the graph root packages for real
-        run: cargo package -p tesmart-proto --locked
-      - name: every crate produces a valid package listing
-        run: |
-          for crate in tesmart-device tesmart-client tesmart-tcp tesmart-serial tesmart-sim tesmart tesmart-cli; do
-            echo "::group::$crate"
-            cargo package -p "$crate" --list --locked
-            echo "::endgroup::"
-          done
-      - name: the cyclic dev-dependency carries no version
-        # tesmart-sim depends on tesmart-client, so a versioned dev-dependency would have to be
-        # published before the crate it depends on. Cargo drops a version-less one instead, which
-        # is why deny.toml also sets allow-wildcard-paths.
-        run: |
-          for crate in tesmart-client tesmart-tcp tesmart-serial; do
-            if grep -E '^tesmart-sim *= *\{[^}]*version' "crates/$crate/Cargo.toml"; then
-              echo "::error::crates/$crate declares tesmart-sim with a version; publishing will deadlock"
-              exit 1
-            fi
-          done
-
-  deny:
-    name: supply chain
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      # advisories, licences, duplicate versions and source registries. Policy and the reasoning
-      # behind each exception live in deny.toml.
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check advisories bans licenses sources
-
-  dist:
-    name: release packaging plan
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-dist
-      # The release workflow is generated from dist-workspace.toml. If the two drift, releases
-      # quietly use the stale workflow, so the generated file is checked in and verified here.
-      - name: the generated release workflow is current
-        run: dist generate --check
-      - name: the release plan resolves
-        run: dist plan
+      - run: nix develop .#msrv --command ci/run.sh msrv
 
   pr-title:
     name: pull request title

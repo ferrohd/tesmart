@@ -33,8 +33,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: DeterminateSystems/nix-installer-action@main
       # Only the advisory database here. Licences, bans and sources are properties of the
       # committed manifests, so they cannot change on their own and ci.yml covers them.
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check advisories
+      #
+      # The same cargo-deny as everywhere else, from the flake, rather than an action that
+      # resolves its own version.
+      - run: nix develop .#ci --command cargo deny check advisories

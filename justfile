@@ -206,6 +206,15 @@ update:
     cargo update
     nix flake update
 
-[doc('what release-plz would do next, without doing it')]
-release-preview:
-    release-plz update --dry-run
+# There is deliberately no `release-preview`. Of release-plz's subcommands only `release` takes
+# --dry-run, and with `release_always = false` it answers "not from a release PR" rather than
+# telling you the next version. `release-plz update` does compute the bumps, but writes them into
+# the manifests and changelogs, so it is not a preview at all.
+#
+# The preview is the release pull request: release-plz opens one on every push to master, showing
+# the exact version bumps and changelog entries before anything is published. `release-plz` stays
+# in the dev shell for driving a release by hand when CI cannot.
+[doc('what would be published, as a dry run (needs GITHUB_TOKEN)')]
+release-check:
+    release-plz release --dry-run --forge github \
+        --git-token "${GITHUB_TOKEN:?set it, e.g. export GITHUB_TOKEN=$(gh auth token)}"

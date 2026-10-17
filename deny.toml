@@ -1,0 +1,66 @@
+# Supply-chain policy, checked by `cargo deny check` in CI.
+#
+# No `[graph] targets` on purpose: with none set, cargo-deny walks the dependency graph for every
+# target, which is what surfaces the Windows-only and macOS-only crates that `serialport` pulls
+# in. Pinning targets here would quietly stop checking two thirds of what we ship.
+
+[advisories]
+# A yanked dependency is a release that cannot be reproduced, so it fails rather than warns.
+yanked = "deny"
+unmaintained = "all"
+ignore = []
+
+[licenses]
+# Every licence actually present in the graph, enumerated rather than guessed.
+#
+# Note what is deliberately absent: GPL-3.0-only. `unescaper` (via serialport) is
+# "MIT OR GPL-3.0-only", and leaving GPL out of this list is how we record that we take the MIT
+# side of that choice. cargo-deny satisfies an OR expression from the allowed set, so this stays
+# green while documenting the decision.
+#
+# MPL-2.0 is serialport itself. It is file-level weak copyleft, and MPL-2.0 section 3.3
+# explicitly permits distribution as part of a larger work under the (A)GPL, which is what this
+# workspace is.
+allow = [
+    "AGPL-3.0-or-later",          # this workspace
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "MIT",
+    "MPL-2.0",                    # serialport
+    "Unicode-3.0",
+    "Unlicense",
+]
+confidence-threshold = 0.93
+
+[bans]
+# Deny rather than warn, with every known duplicate listed below. The point is that a *new*
+# duplicate fails CI: the ones we already carry are not going away until their parents update,
+# but nothing should be added silently.
+multiple-versions = "deny"
+
+# `tesmart-client`, `tesmart-serial` and `tesmart-tcp` declare their dev-dependency on
+# `tesmart-sim` by path with no version, deliberately: tesmart-sim depends on tesmart-client, so
+# a versioned dev-dependency could never be published first. Cargo drops a version-less one from
+# the packaged manifest, which is the whole trick, and the `publish` job in CI asserts it stays
+# that way. To cargo-deny a dependency with no version requirement is a wildcard, so the check
+# stays on and path dependencies are exempted rather than switching it off.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+skip = [
+    # serialport 4.x still wants bitflags 1.x; everything else in the graph is on 2.x.
+    { crate = "bitflags@1.3.2", reason = "serialport 4.10" },
+    # serialport pins an older nix than mio-serial does.
+    { crate = "nix@0.26.4", reason = "serialport 4.10, against nix 0.31 elsewhere" },
+    # thiserror 2.x has moved to syn 3; most of the proc-macro ecosystem is still on syn 2.
+    { crate = "syn@2.0.119", reason = "clap_derive, serde_derive, tracing-attributes" },
+    # Windows-only, and only visible because this config checks every target: the older
+    # windows-sys arrives with serialport, the newer one with rustix and tokio.
+    { crate = "windows-sys@0.52.0", reason = "serialport 4.10, against 0.61 elsewhere" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

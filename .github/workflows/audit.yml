@@ -1,0 +1,40 @@
+name: Audit
+
+# A new advisory against a dependency we already ship is not caused by a commit, so nothing in
+# ci.yml would ever notice it. This runs the same policy as the `deny` job there, on a timer.
+on:
+  schedule:
+    # Mondays, 05:17 UTC. Off the hour on purpose: scheduled workflows are queued by GitHub and
+    # the top of the hour is heavily contended, which delays runs.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  # Also whenever the dependency graph or the policy itself changes, so a bad bump is caught on
+  # the pull request that makes it rather than the following Monday.
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - Cargo.lock
+      - deny.toml
+      - .github/workflows/audit.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  advisories:
+    name: advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Only the advisory database here. Licences, bans and sources are properties of the
+      # committed manifests, so they cannot change on their own and ci.yml covers them.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories

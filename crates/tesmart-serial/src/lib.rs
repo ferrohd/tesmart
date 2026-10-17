@@ -26,9 +26,11 @@
 //!   configurable here; the rest are protocol constants.
 //! - The switch exposes a **3-pin Phoenix connector**, not a DB9. An adapter is needed, and its
 //!   wiring is the first thing to check when nothing answers.
-//! - Ports are opened **exclusively** (`TIOCEXCL` plus `flock`). A second `tesmart` invocation
-//!   fails cleanly instead of interleaving its bytes into someone else's six-byte frame, which
-//!   is the one failure mode that would corrupt a command rather than lose it.
+//! - Ports are opened **exclusively**. A second `tesmart` invocation fails cleanly instead of
+//!   interleaving its bytes into someone else's six-byte frame, which is the one failure mode
+//!   that would corrupt a command rather than lose it. On Unix this is `TIOCEXCL` plus `flock`,
+//!   requested explicitly; on Windows it comes for free, because a COM port is opened through
+//!   `CreateFile` with no sharing mode and cannot be opened twice.
 //! - Connections are [`Persistent`](tesmart_client::ConnectionPolicy::Persistent) by default,
 //!   unlike TCP: opening a tty costs a port-settings round trip and toggles DTR and RTS on most
 //!   USB adapters.
@@ -39,9 +41,9 @@
 //!
 //! # Platforms
 //!
-//! Tested on Linux, including an end-to-end test over a pseudo terminal. macOS should work (a
-//! PTY there needs `with_baud(0)`, which `tokio-serial` documents). Windows is **untested**:
-//! `tokio-serial` supports it, nothing here exercises it.
+//! Built and tested on Linux, macOS and Windows in CI. The pseudo terminal test that drives an
+//! emulated switch end to end is Unix-only, since there is no Windows equivalent of a pts, so
+//! Windows coverage is the build plus everything that does not need a real tty.
 #![allow(clippy::must_use_candidate)]
 
 use core::fmt;
@@ -52,6 +54,29 @@ use std::io;
 
 use tesmart_client::{ConnectionPolicy, Connector, TransportError, TransportKind};
 use tokio_serial::{DataBits, FlowControl, Parity, SerialStream, StopBits};
+
+/// Claims the port for this process alone.
+///
+/// A free function with two platform bodies rather than a `#[cfg]` on the call site:
+/// `tokio_serial::SerialStream::set_exclusive` is `#[cfg(unix)]`, because `TIOCEXCL` is a Unix
+/// ioctl, so calling it unconditionally does not compile on Windows. Gating the statement
+/// instead would leave the `exclusive` argument unused and the stream needlessly `mut` there,
+/// and both are warnings that CI promotes to errors.
+#[cfg(unix)]
+fn claim_exclusive(stream: &mut SerialStream, exclusive: bool) -> tokio_serial::Result<()> {
+    stream.set_exclusive(exclusive)
+}
+
+/// Nothing to do: a Windows COM port is opened through `CreateFile` with no sharing mode, so it
+/// is already exclusive to whoever opened it. The guarantee in the crate docs holds either way.
+///
+/// The `Result` is infallible here and kept only so both platforms share one signature, which
+/// is what lets the call site stay free of `#[cfg]`.
+#[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
+fn claim_exclusive(_stream: &mut SerialStream, _exclusive: bool) -> tokio_serial::Result<()> {
+    Ok(())
+}
 
 /// The baud rate every TESmart document specifies.
 pub const DEFAULT_BAUD: u32 = 9600;
@@ -84,8 +109,11 @@ impl SerialConnector {
 
     /// Sets the baud rate.
     ///
-    /// Only useful for a switch that has been reconfigured, or for a pseudo terminal on macOS,
-    /// where `0` tells the driver to skip setting a speed at all.
+    /// Only useful for a switch that has been reconfigured; every TESmart document specifies
+    /// 9600.
+    ///
+    /// Do not pass `0`. In termios a speed of `B0` means *hang up the line*, not "leave the
+    /// speed alone": on macOS it opens and reads fine and then silently swallows every write.
     #[must_use]
     pub const fn with_baud(mut self, baud: u32) -> Self {
         self.baud = baud;
@@ -96,6 +124,9 @@ impl SerialConnector {
     ///
     /// Turning this off lets two processes write to the same switch, which can split a six-byte
     /// frame down the middle.
+    ///
+    /// Unix only. A Windows COM port is already exclusive to whoever opened it, so there is
+    /// nothing to ask for and nothing to turn off; this is accepted and ignored there.
     #[must_use]
     pub const fn with_exclusive(mut self, exclusive: bool) -> Self {
         self.exclusive = exclusive;
@@ -142,7 +173,7 @@ impl SerialConnector {
 
         let opening = tokio::task::spawn_blocking(move || {
             let mut stream = SerialStream::open(&settings)?;
-            stream.set_exclusive(exclusive)?;
+            claim_exclusive(&mut stream, exclusive)?;
             Ok::<SerialStream, tokio_serial::Error>(stream)
         });
 

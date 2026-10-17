@@ -1,0 +1,13 @@
+# TOML formatting, checked by `just toml` and in CI.
+#
+# `include` is explicit rather than `**/*.toml` plus an `exclude`, because taplo 0.10's `exclude`
+# does nothing: with it set to any spelling of `.direnv/**` the file count stays at 88, since
+# taplo walks into .direnv/flake-inputs and finds the whole of nixpkgs. Listing what we own is
+# the only thing that actually works, and it also means a stray TOML somewhere else cannot
+# quietly become our problem.
+include = ["Cargo.toml", "crates/*/Cargo.toml", "*.toml", ".config/*.toml"]
+
+[formatting]
+# Match rustfmt.toml's max_width, so a dependency line wraps where the Rust beside it would.
+# taplo's own default is 80, which explodes every `features = [...]` onto separate lines.
+column_width = 100

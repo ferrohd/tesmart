@@ -27,11 +27,7 @@ installers = ["shell", "powershell"]
 # x86_64-apple-darwin is absent because Intel Macs no longer justify a second macOS runner, and
 # this workspace has no target_arch conditionals at all, so aarch64-apple-darwin exercises every
 # darwin-specific code path there is.
-targets = [
-    "x86_64-unknown-linux-gnu",
-    "aarch64-apple-darwin",
-    "x86_64-pc-windows-msvc",
-]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 
 # release-plz owns the GitHub release: it publishes the crates, pushes the tag and creates the
 # release as a draft with the changelog as its body. dist then uploads the binaries into that

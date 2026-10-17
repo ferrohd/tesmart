@@ -33,13 +33,13 @@ protect_breaking_commits = true
 # Ordered: first match wins. Mirrors the conventional-commit prefixes actually used in this
 # repository, which so far are feat, test, docs, build, chore and ci.
 commit_parsers = [
-    { message = '^feat', group = "Added" },
-    { message = '^fix', group = "Fixed" },
-    { message = '^perf', group = "Performance" },
-    { message = '^refactor', group = "Changed" },
-    { message = '^docs', group = "Documentation" },
-    # Dependency bumps are worth listing even though their prefixes are skipped below.
-    { message = '^(chore|build)\(deps\)', group = "Dependencies" },
-    { message = '^(ci|style|test|chore|build)', skip = true },
-    { message = '^.*', group = "Other" },
+  { message = '^feat', group = "Added" },
+  { message = '^fix', group = "Fixed" },
+  { message = '^perf', group = "Performance" },
+  { message = '^refactor', group = "Changed" },
+  { message = '^docs', group = "Documentation" },
+  # Dependency bumps are worth listing even though their prefixes are skipped below.
+  { message = '^(chore|build)\(deps\)', group = "Dependencies" },
+  { message = '^(ci|style|test|chore|build)', skip = true },
+  { message = '^.*', group = "Other" },
 ]

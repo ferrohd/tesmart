@@ -22,14 +22,14 @@ ignore = []
 # explicitly permits distribution as part of a larger work under the (A)GPL, which is what this
 # workspace is.
 allow = [
-    "AGPL-3.0-or-later",          # this workspace
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "MIT",
-    "MPL-2.0",                    # serialport
-    "Unicode-3.0",
-    "Unlicense",
+  "AGPL-3.0-or-later",              # this workspace
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "MIT",
+  "MPL-2.0",                        # serialport
+  "Unicode-3.0",
+  "Unlicense",
 ]
 confidence-threshold = 0.93
 
@@ -49,15 +49,15 @@ wildcards = "deny"
 allow-wildcard-paths = true
 
 skip = [
-    # serialport 4.x still wants bitflags 1.x; everything else in the graph is on 2.x.
-    { crate = "bitflags@1.3.2", reason = "serialport 4.10" },
-    # serialport pins an older nix than mio-serial does.
-    { crate = "nix@0.26.4", reason = "serialport 4.10, against nix 0.31 elsewhere" },
-    # thiserror 2.x has moved to syn 3; most of the proc-macro ecosystem is still on syn 2.
-    { crate = "syn@2.0.119", reason = "clap_derive, serde_derive, tracing-attributes" },
-    # Windows-only, and only visible because this config checks every target: the older
-    # windows-sys arrives with serialport, the newer one with rustix and tokio.
-    { crate = "windows-sys@0.52.0", reason = "serialport 4.10, against 0.61 elsewhere" },
+  # serialport 4.x still wants bitflags 1.x; everything else in the graph is on 2.x.
+  { crate = "bitflags@1.3.2", reason = "serialport 4.10" },
+  # serialport pins an older nix than mio-serial does.
+  { crate = "nix@0.26.4", reason = "serialport 4.10, against nix 0.31 elsewhere" },
+  # thiserror 2.x has moved to syn 3; most of the proc-macro ecosystem is still on syn 2.
+  { crate = "syn@2.0.119", reason = "clap_derive, serde_derive, tracing-attributes" },
+  # Windows-only, and only visible because this config checks every target: the older
+  # windows-sys arrives with serialport, the newer one with rustix and tokio.
+  { crate = "windows-sys@0.52.0", reason = "serialport 4.10, against 0.61 elsewhere" },
 ]
 
 [sources]

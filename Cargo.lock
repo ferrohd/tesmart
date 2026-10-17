@@ -899,7 +899,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesmart"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tesmart-client",
  "tesmart-proto",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "tesmart-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anstream",
  "assert_cmd",
@@ -932,7 +932,7 @@ dependencies = [
 
 [[package]]
 name = "tesmart-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tesmart-proto",
  "tesmart-sim",
@@ -944,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "tesmart-device"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "tesmart-proto",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "tesmart-proto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "serde",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "tesmart-serial"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serialport",
  "tesmart-client",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "tesmart-sim"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tesmart-client",
  "tesmart-device",
@@ -986,7 +986,7 @@ dependencies = [
 
 [[package]]
 name = "tesmart-tcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tesmart-client",
  "tesmart-proto",

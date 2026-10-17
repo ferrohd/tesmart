@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-or-later"
@@ -26,13 +26,13 @@ repository = "https://github.com/ferrohd/tesmart"
 # tesmart-serial: tesmart-sim depends on tesmart-client, so a versioned dev-dependency would
 # make the first publish of either impossible. Those three declare it by path alone, which
 # cargo drops from the published manifest. See their own manifests.
-tesmart = { path = "crates/tesmart", version = "0.1.0" }
-tesmart-proto = { path = "crates/tesmart-proto", version = "0.1.0" }
-tesmart-device = { path = "crates/tesmart-device", version = "0.1.0" }
-tesmart-client = { path = "crates/tesmart-client", version = "0.1.0" }
-tesmart-sim = { path = "crates/tesmart-sim", version = "0.1.0" }
-tesmart-tcp = { path = "crates/tesmart-tcp", version = "0.1.0" }
-tesmart-serial = { path = "crates/tesmart-serial", version = "0.1.0" }
+tesmart = { path = "crates/tesmart", version = "0.1.1" }
+tesmart-proto = { path = "crates/tesmart-proto", version = "0.1.1" }
+tesmart-device = { path = "crates/tesmart-device", version = "0.1.1" }
+tesmart-client = { path = "crates/tesmart-client", version = "0.1.1" }
+tesmart-sim = { path = "crates/tesmart-sim", version = "0.1.1" }
+tesmart-tcp = { path = "crates/tesmart-tcp", version = "0.1.1" }
+tesmart-serial = { path = "crates/tesmart-serial", version = "0.1.1" }
 
 # Core
 thiserror = { version = "2.0.21", default-features = false }
